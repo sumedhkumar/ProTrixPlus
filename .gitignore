@@ -34,3 +34,6 @@ dist/
 build/
 web/tsconfig.tsbuildinfo
 *.tsbuildinfo
+
+# run-without-docker helper state
+.run-local/

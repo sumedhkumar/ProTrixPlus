@@ -54,6 +54,17 @@ identity, no password), and watch the signal and its execution appear.
 
 Full reset: `docker compose -f infra/docker-compose.yml down -v`.
 
+### No Docker?
+
+`docs/RUN-LOCAL.md` + `run-local.ps1` run the stack against a natively-installed
+PostgreSQL 16 and Redis 7:
+
+```powershell
+./run-local.ps1 setup   # venv + deps + create db + migrate + seed
+./run-local.ps1 up      # redis (if needed) + api + worker + web
+./run-local.ps1 status
+```
+
 ## The mock signal slice
 
 1. `infra/scripts/simulate_signal.py` POSTs a frozen v1.0 envelope to
