@@ -24,4 +24,14 @@ def test_worker_health_green() -> None:
 
 
 def test_web_is_up() -> None:
-    assert httpx.get(f"{WEB_URL}/login", timeout=5).status_code == 200
+    # `next dev` compiles a route lazily on first hit, so give it room.
+    last: Exception | int | None = None
+    for _ in range(6):
+        try:
+            r = httpx.get(f"{WEB_URL}/login", timeout=20)
+            if r.status_code == 200:
+                return
+            last = r.status_code
+        except httpx.HTTPError as exc:  # noqa: PERF203
+            last = exc
+    raise AssertionError(f"web /login not 200 (last={last})")

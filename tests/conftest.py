@@ -15,20 +15,20 @@ import httpx
 import pytest
 from sqlalchemy import create_engine, text
 
-API_URL = os.environ.get("PROTRIX_API_URL", "http://localhost:8000")
-WORKER_HEALTH_URL = os.environ.get("PROTRIX_WORKER_HEALTH_URL", "http://localhost:8100")
-WEB_URL = os.environ.get("PROTRIX_WEB_URL", "http://localhost:3000")
+API_URL = os.environ.get("PROTRIX_API_URL", "http://127.0.0.1:8000")
+WORKER_HEALTH_URL = os.environ.get("PROTRIX_WORKER_HEALTH_URL", "http://127.0.0.1:8100")
+WEB_URL = os.environ.get("PROTRIX_WEB_URL", "http://127.0.0.1:3000")
 DATABASE_URL = os.environ.get(
-    "PROTRIX_DATABASE_URL", "postgresql+psycopg://protrix:protrix@localhost:5432/protrix"
+    "PROTRIX_DATABASE_URL", "postgresql+psycopg://protrix:protrix@127.0.0.1:5432/protrix"
 ).replace("postgresql+psycopg://", "postgresql+psycopg://")
-REDIS_URL = os.environ.get("PROTRIX_REDIS_URL", "redis://localhost:6379/0")
+REDIS_URL = os.environ.get("PROTRIX_REDIS_URL", "redis://127.0.0.1:6379/0")
 WEBHOOK_TOKEN = os.environ.get("PROTRIX_WEBHOOK_SHARED_SECRET", "dev-webhook-token-change-me")
 COMPOSE_FILE = os.environ.get("PROTRIX_COMPOSE_FILE", "infra/docker-compose.yml")
 
 
 def _stack_up() -> bool:
     try:
-        return httpx.get(f"{API_URL}/health", timeout=2).status_code in (200, 503)
+        return httpx.get(f"{API_URL}/health", timeout=8).status_code in (200, 503)
     except Exception:
         return False
 

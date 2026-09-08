@@ -1,111 +1,100 @@
 # Run the S0 skeleton without Docker (Windows)
 
-Docker Compose is the supported path (`README.md` / `infra/README.md`). This file
-is the fallback: run PostgreSQL and Redis natively, then let `run-local.ps1`
-start `api`, `worker`, and `web`.
+Docker Compose is the supported path (`README.md` / `infra/README.md`). This is
+the fallback. `run-local.ps1` has two modes:
 
-## 1. Prerequisites (one-time installs)
+- **Portable (default, zero‑install)** — `bootstrap` downloads a *portable*
+  PostgreSQL 16 and Redis into `<repo>\.localstack\` and runs them on
+  **PG 55432 / Redis 6399**, bound to `127.0.0.1`, with **no Windows service, no
+  admin, no PATH or registry changes**. `teardown` deletes that folder and the
+  machine is exactly as before.
+- **System** — if you already run PostgreSQL on `:5432` and Redis on `:6379`,
+  skip `bootstrap` and the script uses those.
 
-### PostgreSQL 16
+Either way it launches `api`, `worker`, and `web` from a local Python venv + Node.
 
-1. Download the Windows installer:
-   <https://www.postgresql.org/download/windows/> (EDB installer, pick 16.x).
-2. During install: keep port **5432**; set a password for the `postgres`
-   superuser and remember it.
-3. Confirm the service **`postgresql-x64-16`** is running
-   (`services.msc`, or `Get-Service postgresql*`).
+## Prerequisites
 
-You do **not** need to create the `protrix` role/database by hand —
-`run-local.ps1 setup` does it (it will ask for the `postgres` password once).
+| Portable mode | System mode |
+| --- | --- |
+| Node 20–22, Python 3.12+, ~1.5 GB free disk, internet (one‑time ~300 MB download) | the above **plus** a running PostgreSQL 16 on 5432 and a Redis 7 on 6379 |
 
-### Node.js 20–22
+Node and Python installers: <https://nodejs.org> (LTS), <https://www.python.org/downloads/windows/> ("Add to PATH").
 
-<https://nodejs.org/> — LTS. Verify: `node --version`, `npm --version`.
-
-### Python 3.12+
-
-<https://www.python.org/downloads/windows/> — check "Add python.exe to PATH".
-Verify: `python --version`.
-
-### Redis 7 (pick ONE)
-
-Redis has no official Windows build.
-
-**Option A — WSL (recommended)**
-
-```powershell
-wsl --install                       # then reboot if it asks
-# inside the new Ubuntu shell:
-sudo apt-get update && sudo apt-get install -y redis-server
-```
-
-`run-local.ps1 up` will start `redis-server` inside WSL automatically; WSL2
-forwards `localhost:6379` to Windows.
-
-**Option B — Memurai** (native Windows, Redis-compatible)
-
-<https://www.memurai.com/get-memurai> — installs as an always-on Windows service
-listening on 6379. Nothing else to do.
-
-## 2. First run
+## First run (portable — recommended)
 
 ```powershell
 cd "C:\Users\HP\Desktop\Protrix plus"
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass    # if scripts are blocked
 
-# If scripts are blocked:  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-
-./run-local.ps1 setup      # venv + pip + npm ci + create db + alembic upgrade + seed
-./run-local.ps1 up         # starts redis (if needed) + api + worker + web in 3 windows
-./run-local.ps1 status     # ports + /health
+./run-local.ps1 bootstrap    # download portable PG + Redis, init the db cluster
+./run-local.ps1 setup        # venv + python deps + npm ci + alembic upgrade + seed
+./run-local.ps1 up           # start infra + api + worker + web  (hidden; logs in .run-local\logs)
+./run-local.ps1 status       # ports + /health
 ```
 
 Then:
 
 ```powershell
-python infra\scripts\simulate_signal.py     # post one mock signal
-start http://localhost:3000                  # open the dashboards
+python infra\scripts\simulate_signal.py    # post one mock signal
+start http://localhost:3000                 # open the dashboards
 ```
 
-Sign in as **USER** or **SUPER_ADMIN** (mock identity, no password) and the
-signal + its execution appear.
+Sign in as **USER** or **SUPER_ADMIN** (mock identity, no password) — the signal
+and its execution appear.
 
-## 3. Day-to-day
+Add `-Windows` to `up` to get three visible log windows instead of hidden
+processes: `./run-local.ps1 up -Windows`.
+
+## Commands
 
 | Command | What |
 | --- | --- |
-| `./run-local.ps1 up` | start everything |
-| `./run-local.ps1 status` | check ports + health JSON |
-| `./run-local.ps1 down` | stop api/worker/web (and Redis if the script started it) |
-| `./run-local.ps1 reset` | `alembic downgrade base` → `upgrade head` → re-seed |
-| `./run-local.ps1 setup -SkipInstall` | just re-migrate + re-seed (skip pip/npm) |
+| `bootstrap` | one‑time: download portable PG + Redis into `.localstack`, `initdb`, create db `protrix` |
+| `setup` | venv + `pip install` (contracts+api+worker) + `npm ci` + `alembic upgrade head` + seed |
+| `setup -SkipInstall` | just migrate + seed (skip pip/npm) |
+| `up` / `up -Windows` | start infra (portable) + the three app processes |
+| `status` | ports + health JSON |
+| `down` | stop everything the script started; **keeps** the database |
+| `reset` | `alembic downgrade base` → `upgrade head` → re‑seed |
+| `teardown` | `down` + delete `.localstack` (full reverse) |
 
-Each service runs in its own titled PowerShell window (`protrix-api`,
-`protrix-worker`, `protrix-web`) so you see logs live; closing a window stops
-that service.
+## Ports
 
-## 4. Ports
-
-| Service | URL |
+| Service | URL / endpoint |
 | --- | --- |
 | api | <http://localhost:8000> (`/health`, `/docs`) |
 | worker health | <http://localhost:8100/health> |
 | web | <http://localhost:3000> |
-| PostgreSQL | `localhost:5432` db `protrix` user `protrix` pass `protrix` |
-| Redis | `localhost:6379` |
+| PostgreSQL | portable `localhost:55432` · system `localhost:5432` — db/user/pass `protrix` |
+| Redis | portable `localhost:6399` · system `localhost:6379` |
 
-## 5. Troubleshooting
+Logs (hidden mode): `.run-local\logs\protrix-{api,worker,web}.log`.
+Portable infra logs: `.localstack\postgres.log`, `.localstack\redis.log`.
+
+## Integration tests against the running stack
+
+```powershell
+.\.venv\Scripts\python -m pip install -r tests\requirements.txt
+$env:PROTRIX_DATABASE_URL = "postgresql+psycopg://protrix:protrix@localhost:55432/protrix"  # portable
+$env:PROTRIX_REDIS_URL    = "redis://localhost:6399/0"
+.\.venv\Scripts\python -m pytest tests -q
+```
+
+`test_worker_restart.py` is skipped without Docker (it restarts a container);
+the slice, duplicate and executor‑timeout tests run.
+
+## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `PostgreSQL is not listening on 5432` | start the `postgresql-x64-16` service |
-| `psql.exe not found` | `./run-local.ps1 setup -PgBin "C:\Program Files\PostgreSQL\16\bin"` |
-| `No Redis available` | install WSL redis-server or Memurai (section 1) |
-| `port 8000 already in use` | something else is on 8000 — stop it, or edit `run-local.ps1` `$SharedEnv` + the `uvicorn --port` |
-| web shows "dev login failed" | the `api` window isn't up yet — wait, or check its logs |
-| worker window exits immediately | run `./run-local.ps1 setup` (schema/seed missing) |
-| running the integration suite | `pip install -r tests/requirements.txt` then `pytest tests -q` (the worker-restart test is skipped without Docker) |
+| `bootstrap` download slow/fails | re‑run it — the `.zip`s are cached in `.localstack\_dl` and skipped if present |
+| `port 8000/3000 already in use` | free the port, or edit `$e` in `run-local.ps1` and the `uvicorn --port` / `next dev` line |
+| web shows "dev login failed" | the `api` process isn't ready — `./run-local.ps1 status`, check `.run-local\logs\protrix-api.err.log` |
+| worker log shows it exiting | run `./run-local.ps1 setup` (schema/seed missing) |
+| want it all gone | `./run-local.ps1 teardown` then delete `.venv` and `web\node_modules` |
 
-## 6. Full manual equivalent (no script)
+## Fully manual equivalent (system Postgres/Redis)
 
 ```powershell
 python -m venv .venv
@@ -114,11 +103,7 @@ cd web; npm ci; cd ..
 
 $env:PROTRIX_DATABASE_URL = "postgresql+psycopg://protrix:protrix@localhost:5432/protrix"
 $env:PROTRIX_REDIS_URL    = "redis://localhost:6379/0"
-$env:PROTRIX_APP_ENV      = "local"
-$env:PROTRIX_WORKER_HEALTH_PORT = "8100"
-$env:PROTRIX_API_URL      = "http://localhost:8000"
-
-# (start Redis: WSL `redis-server --daemonize yes`, or Memurai service)
+$env:PROTRIX_APP_ENV = "local"; $env:PROTRIX_WORKER_HEALTH_PORT = "8100"; $env:PROTRIX_API_URL = "http://localhost:8000"
 
 cd api;    .\..\.venv\Scripts\python -m alembic upgrade head
            .\..\.venv\Scripts\python -m app.seed

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-const API_URL = process.env.E2E_API_URL ?? "http://localhost:8000";
+const API_URL = process.env.E2E_API_URL ?? "http://127.0.0.1:8000";
 const WEBHOOK_TOKEN = process.env.PROTRIX_WEBHOOK_SHARED_SECRET ?? "dev-webhook-token-change-me";
 
 const SAMPLE_SIGNAL = {
@@ -31,16 +31,30 @@ test("user dashboard shows the signal and its execution status", async ({ page, 
 
   await expect(page.getByTestId("identity-role")).toHaveText("USER");
 
-  // 3. The signal appears (poll: the worker fan-out is async).
-  const signalCell = page.getByRole("cell", { name: SAMPLE_SIGNAL.signal_id });
-  await expect(signalCell).toBeVisible({ timeout: 20_000 });
-
-  // 4. An execution row reaches a terminal-ish state.
+  // 3. The signal appears in the signals table (worker fan-out is async).
   await expect
     .poll(
       async () => {
         await page.reload();
-        return page.getByTestId("execution-state").first().textContent();
+        return page
+          .getByTestId("signals-table")
+          .getByRole("cell", { name: SAMPLE_SIGNAL.signal_id })
+          .count();
+      },
+      { timeout: 20_000, intervals: [1000] },
+    )
+    .toBeGreaterThan(0);
+
+  // 4. Its execution row reaches a terminal-ish state.
+  await expect
+    .poll(
+      async () => {
+        await page.reload();
+        return page
+          .getByTestId("executions-table")
+          .locator('[data-testid="execution-state"]')
+          .first()
+          .textContent();
       },
       { timeout: 20_000, intervals: [1000] },
     )
