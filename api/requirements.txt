@@ -1,0 +1,15 @@
+# Direct runtime dependencies for the api service. Exact pins only.
+# The fully-resolved lockfile (including transitives) is requirements.lock.txt.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.1
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg[binary]==3.2.3
+redis==5.2.1
+PyJWT==2.10.1
+jsonschema==4.23.0
+python-json-logger==3.2.1
+# Shared frozen contract (installed from the local path in Docker / CI).
+protrix-contracts==1.0.0

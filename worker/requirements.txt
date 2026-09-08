@@ -1,0 +1,8 @@
+# Direct runtime dependencies for the worker service. Exact pins only.
+# Fully-resolved lockfile (with transitives) is requirements.lock.txt.
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+redis==5.2.1
+python-json-logger==3.2.1
+# Shared frozen contract (installed from the local path in Docker / CI).
+protrix-contracts==1.0.0

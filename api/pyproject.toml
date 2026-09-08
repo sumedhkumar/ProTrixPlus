@@ -1,0 +1,53 @@
+[project]
+name = "protrixplus-api"
+version = "0.1.0"
+description = "Protrixplus api: webhook ingress, dashboard read APIs, dev identity."
+requires-python = ">=3.12"
+# Runtime deps are pinned in requirements.txt / requirements.lock.txt.
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N", "SIM", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection idiom: calls in argument defaults are intentional.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Header",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["alembic/"]
+# Resolve the shared package from source regardless of editable-install mode.
+mypy_path = "../contracts/python"
+
+[[tool.mypy.overrides]]
+module = ["jsonschema.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+markers = [
+    "dbtest: requires a reachable PostgreSQL (auto-skipped when unavailable)",
+]
+filterwarnings = [
+    "error::DeprecationWarning:app",
+    "error::DeprecationWarning:protrix_contracts",
+    "ignore::DeprecationWarning",
+]

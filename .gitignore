@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Next
+node_modules/
+web/.next/
+web/out/
+web/playwright-report/
+web/test-results/
+
+# Env / secrets (only .env.example is committed)
+.env
+infra/.env
+*.local
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Build
+dist/
+build/

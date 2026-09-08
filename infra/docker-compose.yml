@@ -1,0 +1,99 @@
+# Protrixplus S0 local stack. Zero paid infra, zero real credentials.
+# Usage (from repo root):
+#   docker compose -f infra/docker-compose.yml --env-file infra/.env up --build
+name: protrixplus
+
+x-python-env: &python-env
+  PROTRIX_APP_ENV: local
+  PROTRIX_LOG_LEVEL: INFO
+  PROTRIX_DATABASE_URL: postgresql+psycopg://protrix:protrix@postgres:5432/protrix
+  PROTRIX_REDIS_URL: redis://redis:6379/0
+  PROTRIX_SIGNAL_STREAM: protrix.signals.v1
+  PROTRIX_SIGNAL_CONSUMER_GROUP: protrix-workers
+
+services:
+  postgres:
+    image: postgres:16.6-bookworm
+    environment:
+      POSTGRES_USER: protrix
+      POSTGRES_PASSWORD: protrix
+      POSTGRES_DB: protrix
+      TZ: UTC
+      PGTZ: UTC
+    command: ["postgres", "-c", "timezone=UTC"]
+    ports:
+      - "${PROTRIX_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U protrix -d protrix"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4.1-bookworm
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${PROTRIX_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: api/Dockerfile
+    environment:
+      <<: *python-env
+      PROTRIX_SERVICE_NAME: api
+      PROTRIX_DEV_IDENTITY_ENABLED: "true"
+      PROTRIX_DEV_JWT_SECRET: ${PROTRIX_DEV_JWT_SECRET:-dev-only-not-a-real-secret-change-me}
+      PROTRIX_DEV_JWT_ISSUER: protrixplus-dev-identity
+      PROTRIX_WEBHOOK_SHARED_SECRET: ${PROTRIX_WEBHOOK_SHARED_SECRET:-dev-webhook-token-change-me}
+    ports:
+      - "${PROTRIX_API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ..
+      dockerfile: worker/Dockerfile
+    environment:
+      <<: *python-env
+      PROTRIX_SERVICE_NAME: worker
+      PROTRIX_WORKER_NAME: worker-1
+      PROTRIX_EXECUTION_ADAPTER: mock
+    ports:
+      - "${PROTRIX_WORKER_HEALTH_PORT:-8100}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    environment:
+      NODE_ENV: production
+      PROTRIX_API_URL: http://api:8000
+      PROTRIX_WEBHOOK_SHARED_SECRET: ${PROTRIX_WEBHOOK_SHARED_SECRET:-dev-webhook-token-change-me}
+    ports:
+      - "${PROTRIX_WEB_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:

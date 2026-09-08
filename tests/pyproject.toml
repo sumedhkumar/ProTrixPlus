@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# conftest.py / helpers.py are imported as top-level modules by pytest.
+[tool.ruff.lint.isort]
+known-first-party = ["conftest", "helpers"]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+markers = [
+    "integration: runs against the live composed stack (auto-skipped if unreachable)",
+    "needs_docker: needs the docker CLI + compose file to restart a container",
+]
+addopts = "-ra"

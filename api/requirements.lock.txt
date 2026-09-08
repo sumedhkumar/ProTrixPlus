@@ -1,0 +1,36 @@
+# Fully-resolved runtime lock for the api service (generated: pip freeze in a
+# clean venv from requirements.txt). Docker/CI install requirements.txt; this file
+# is the committed proof of the exact resolved set.
+alembic==1.14.0
+annotated-types==0.8.0
+anyio==4.15.1
+attrs==26.1.0
+click==8.5.0
+colorama==0.4.6
+fastapi==0.115.6
+h11==0.16.0
+httptools==0.8.0
+idna==3.19
+jsonschema==4.23.0
+jsonschema-specifications==2025.9.1
+Mako==1.4.1
+MarkupSafe==3.0.3
+psycopg==3.2.3
+psycopg-binary==3.2.3
+pydantic==2.10.4
+pydantic-settings==2.7.1
+pydantic_core==2.27.2
+PyJWT==2.10.1
+python-dotenv==1.2.3
+python-json-logger==3.2.1
+PyYAML==6.0.3
+redis==5.2.1
+referencing==0.37.0
+rpds-py==2026.6.3
+SQLAlchemy==2.0.36
+starlette==0.41.3
+typing_extensions==4.16.0
+tzdata==2026.3
+uvicorn==0.34.0
+watchfiles==1.2.0
+websockets==17.1

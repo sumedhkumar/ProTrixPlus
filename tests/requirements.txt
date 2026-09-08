@@ -1,0 +1,6 @@
+# Integration test suite deps (runs against the composed stack). Exact pins.
+pytest==8.3.4
+httpx==0.28.1
+SQLAlchemy==2.0.36
+psycopg[binary]==3.2.3
+redis==5.2.1

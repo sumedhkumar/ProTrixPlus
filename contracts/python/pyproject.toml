@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools==75.6.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "protrix-contracts"
+version = "1.0.0"
+description = "Frozen wire contract, canonical hashing, execution lifecycle, and shared DB models for Protrixplus api + worker."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic==2.10.4",
+    "jsonschema==4.23.0",
+    "SQLAlchemy==2.0.36",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "ruff==0.8.6",
+    "mypy==1.14.1",
+    "types-jsonschema==4.23.0.20240813",
+]
+
+[tool.setuptools]
+packages = ["protrix_contracts", "protrix_contracts.db", "protrix_contracts.data"]
+
+[tool.setuptools.package-data]
+"protrix_contracts" = ["py.typed"]
+"protrix_contracts.data" = ["*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["jsonschema.*"]
+ignore_missing_imports = true

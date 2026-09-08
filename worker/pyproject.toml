@@ -1,0 +1,31 @@
+[project]
+name = "protrixplus-worker"
+version = "0.1.0"
+description = "Protrixplus worker: outbox relay, signal fan-out, mock eligibility + intents, mock execution."
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "N", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+# ExecutionTimeout mirrors a transport client's timeout type; the -Error suffix
+# would only make call sites read worse.
+"app/adapters/base.py" = ["N818"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "../contracts/python"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "dbtest: requires a reachable PostgreSQL (auto-skipped when unavailable)",
+]

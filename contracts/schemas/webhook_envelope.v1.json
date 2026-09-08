@@ -1,0 +1,135 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://protrixplus.local/contracts/webhook_envelope/1.0",
+  "title": "Protrixplus TradingView Webhook Envelope",
+  "description": "FROZEN wire contract v1.0. The stored backend strategy configuration is always authoritative. Message-supplied values such as master_lot_info are informational only and MUST NOT be used for sizing or risk.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "strategy_key",
+    "strategy_version",
+    "signal_id",
+    "event_time_utc",
+    "action",
+    "symbol",
+    "timeframe"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Envelope schema version. Frozen at 1.0 for S0."
+    },
+    "strategy_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "strategy_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-zA-Z0-9_.:-]+$"
+    },
+    "signal_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Producer-assigned unique id for this signal. Basis of idempotent acceptance."
+    },
+    "event_time_utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|\\+00:00)$",
+      "description": "ISO-8601 timestamp in UTC. Must carry an explicit UTC offset (Z or +00:00). The regex is the portable rule; format:date-time is belt-and-braces."
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "BUY",
+        "SELL",
+        "CLOSE",
+        "PARTIAL_CLOSE",
+        "MODIFY_SLTP",
+        "EMERGENCY_CLOSE"
+      ]
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[A-Z0-9._/-]+$"
+    },
+    "timeframe": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8,
+      "pattern": "^[0-9]+[smhdwMy]$|^[A-Z0-9]+$"
+    },
+    "position_ref": {
+      "type": ["string", "null"],
+      "maxLength": 128,
+      "description": "REQUIRED for management actions (CLOSE, PARTIAL_CLOSE, MODIFY_SLTP, EMERGENCY_CLOSE). Identifies the master position this command targets."
+    },
+    "close_fraction": {
+      "type": ["string", "null"],
+      "pattern": "^(0(\\.[0-9]+)?|1(\\.0+)?)$",
+      "description": "Decimal fraction in (0,1] as a JSON string to preserve precision. Only meaningful for PARTIAL_CLOSE."
+    },
+    "stop_loss": {
+      "type": ["string", "null"],
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "description": "Price as a decimal string. Never a JSON number (float precision loss)."
+    },
+    "take_profit": {
+      "type": ["string", "null"],
+      "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+      "description": "Price as a decimal string. Never a JSON number (float precision loss)."
+    },
+    "master_lot_info": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "description": "INFORMATIONAL ONLY. Never authoritative for sizing. The stored strategy_assignment.master_lot is the source of truth.",
+      "properties": {
+        "master_lot": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9]+(\\.[0-9]+)?$"
+        },
+        "note": {
+          "type": ["string", "null"],
+          "maxLength": 256
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "action": {
+            "enum": ["CLOSE", "PARTIAL_CLOSE", "MODIFY_SLTP", "EMERGENCY_CLOSE"]
+          }
+        }
+      },
+      "then": {
+        "required": ["position_ref"],
+        "properties": {
+          "position_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "action": { "const": "PARTIAL_CLOSE" } }
+      },
+      "then": {
+        "required": ["close_fraction"],
+        "properties": {
+          "close_fraction": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  ]
+}
