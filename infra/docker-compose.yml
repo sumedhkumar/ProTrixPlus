@@ -13,7 +13,7 @@ x-python-env: &python-env
 
 services:
   postgres:
-    image: postgres:16.6-bookworm
+    image: postgres:16.6
     environment:
       POSTGRES_USER: protrix
       POSTGRES_PASSWORD: protrix
@@ -33,7 +33,7 @@ services:
       retries: 20
 
   redis:
-    image: redis:7.4.1-bookworm
+    image: redis:7.4.1
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "${PROTRIX_REDIS_PORT:-6379}:6379"

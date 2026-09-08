@@ -39,6 +39,11 @@ mypy_path = "../contracts/python"
 module = ["jsonschema.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Tests may use untyped fixtures; CI type-checks `app` only.
+module = ["tests.*"]
+ignore_errors = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

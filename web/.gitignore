@@ -4,3 +4,4 @@ playwright-report/
 test-results/
 npm-debug.log*
 .env*.local
+*.tsbuildinfo
