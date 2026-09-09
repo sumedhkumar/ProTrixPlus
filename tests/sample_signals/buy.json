@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "strategy_key": "trend-rider",
+  "strategy_version": "2025.09",
+  "signal_id": "sample-buy-1",
+  "event_time_utc": "2026-01-01T00:00:00Z",
+  "action": "BUY",
+  "symbol": "EURUSD",
+  "timeframe": "15m",
+  "stop_loss": "1.07500",
+  "take_profit": "1.09000",
+  "master_lot_info": { "master_lot": "1.00", "note": "informational only - not authoritative" }
+}

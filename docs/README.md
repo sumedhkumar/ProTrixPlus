@@ -7,3 +7,7 @@
 
 The runnable quick-start lives in the [repo README](../README.md) and
 [infra/README.md](../infra/README.md).
+
+## Demo
+
+- [DEMO.md](DEMO.md) — 5-minute "see it working" walkthrough (stack already running).
