@@ -33,6 +33,10 @@ def ensure_group(redis: Redis, stream: str, group: str) -> None:
             raise
 
 
+def _is_nogroup(exc: BaseException) -> bool:
+    return "NOGROUP" in str(exc)
+
+
 def _handle(
     session_factory: sessionmaker[Session], fields: dict[str, str], adapter: ExecutionAdapter
 ) -> None:
@@ -74,20 +78,35 @@ def consume_once(
             ),
         )
         entries.extend(autoclaim[1])
-    except ResponseError as exc:  # pragma: no cover - defensive
-        log.warning("xautoclaim failed: %s", exc)
+    except ResponseError as exc:
+        # The stream/group can vanish under us (redis restart with no
+        # persistence, FLUSHDB, failover). Recreate and carry on rather than
+        # erroring forever.
+        if _is_nogroup(exc):
+            log.warning("consumer group gone; recreating %s/%s", stream, group)
+            ensure_group(redis, stream, group)
+        else:  # pragma: no cover - defensive
+            log.warning("xautoclaim failed: %s", exc)
 
-    resp = cast(
-        "list[tuple[str, list[StreamEntry]]]",
-        redis.xreadgroup(
-            groupname=group,
-            consumername=consumer,
-            streams={stream: ">"},
-            count=count,
-            block=block_ms,
+    try:
+        resp = cast(
+            "list[tuple[str, list[StreamEntry]]]",
+            redis.xreadgroup(
+                groupname=group,
+                consumername=consumer,
+                streams={stream: ">"},
+                count=count,
+                block=block_ms,
+            )
+            or [],
         )
-        or [],
-    )
+    except ResponseError as exc:
+        if _is_nogroup(exc):
+            log.warning("consumer group gone; recreating %s/%s", stream, group)
+            ensure_group(redis, stream, group)
+            resp = []
+        else:
+            raise
     for _stream_name, msgs in resp:
         entries.extend(msgs)
 
