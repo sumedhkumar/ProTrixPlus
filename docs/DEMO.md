@@ -56,6 +56,14 @@ In a terminal:
 .\.venv\Scripts\python infra\scripts\simulate_signal.py --signal-id demo-1
 ```
 
+For a controlled MT5 demo entry on the configured gold symbol, omit stops
+unless you have chosen valid XAUUSD prices:
+
+```powershell
+.\.venv\Scripts\python infra\scripts\simulate_signal.py `
+  --signal-id xauusd-demo-1 --symbol XAUUSD --action BUY
+```
+
 Expected:
 
 ```

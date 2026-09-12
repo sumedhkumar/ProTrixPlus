@@ -20,7 +20,11 @@ log = logging.getLogger("worker.catch_up")
 
 
 def run_catch_up(
-    session_factory: sessionmaker[Session], adapter: ExecutionAdapter, *, limit: int = 500
+    session_factory: sessionmaker[Session],
+    adapter: ExecutionAdapter,
+    *,
+    limit: int = 500,
+    active_user_email: str | None = None,
 ) -> int:
     with session_factory() as session:
         signal_ids = list(
@@ -30,7 +34,12 @@ def run_catch_up(
     for signal_id in signal_ids:
         session = session_factory()
         try:
-            process_signal(session, signal_id, adapter)
+            process_signal(
+                session,
+                signal_id,
+                adapter,
+                active_user_email=active_user_email,
+            )
         except Exception:
             log.exception("catch-up: failed on signal %s", signal_id)
         finally:

@@ -24,7 +24,7 @@
 
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('bootstrap', 'setup', 'up', 'down', 'status', 'reset', 'teardown', 'help')]
+  [ValidateSet('bootstrap', 'setup', 'up', 'mt5-worker', 'tradingview-gateway', 'down', 'status', 'reset', 'teardown', 'help')]
   [string]$Command = 'help',
   [switch]$SkipInstall,
   [switch]$Windows          # `up`: launch each service in its own visible window instead of hidden+logfile
@@ -74,6 +74,22 @@ function Kill-Tree([int]$ProcId) { try { & taskkill /PID $ProcId /T /F 2>$null |
 function Get-VenvPy { if (-not (Test-Path $VenvPy)) { Die "no venv - run: ./run-local.ps1 setup" }; return $VenvPy }
 function Portable { return (Test-Path $Marker) }
 
+function Load-DotEnv {
+  $envFile = Join-Path $Root 'infra\.env'
+  if (-not (Test-Path -LiteralPath $envFile)) { return }
+  foreach ($line in Get-Content -LiteralPath $envFile) {
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+      $name = $Matches[1]
+      $value = $Matches[2].Trim()
+      if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+          ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+      Set-Item "Env:$name" $value
+    }
+  }
+}
+
 function Download-File([string]$Url, [string]$OutFile) {
   Info "downloading $([IO.Path]::GetFileName($OutFile))"
   $old = $ProgressPreference; $ProgressPreference = 'SilentlyContinue'
@@ -107,6 +123,7 @@ function Redis-Url {
   return 'redis://127.0.0.1:6379/0'
 }
 function Apply-Env {
+  Load-DotEnv
   $e = @{
     PROTRIX_DATABASE_URL          = (Db-Url)
     PROTRIX_REDIS_URL             = (Redis-Url)
@@ -115,11 +132,16 @@ function Apply-Env {
     PROTRIX_DEV_IDENTITY_ENABLED  = 'true'
     PROTRIX_DEV_JWT_SECRET        = 'dev-only-not-a-real-secret-change-me'
     PROTRIX_WEBHOOK_SHARED_SECRET = 'dev-webhook-token-change-me'
+    PROTRIX_EXECUTION_ADAPTER     = 'mock'
     PROTRIX_WORKER_HEALTH_PORT    = '8100'
     PROTRIX_API_URL               = 'http://127.0.0.1:8000'
     NEXT_TELEMETRY_DISABLED       = '1'
   }
-  foreach ($k in $e.Keys) { Set-Item "Env:$k" $e[$k] }
+  foreach ($k in $e.Keys) {
+    if (-not [Environment]::GetEnvironmentVariable($k, 'Process')) {
+      Set-Item "Env:$k" $e[$k]
+    }
+  }
 }
 
 function Save-State($obj) {
@@ -259,6 +281,10 @@ function Do-Setup {
     & $VenvPy -m pip install --upgrade pip --quiet
     & $VenvPy -m pip install --quiet -e "$Root\contracts\python" -r "$Root\api\requirements.txt" -r "$Root\worker\requirements.txt"
     if ($LASTEXITCODE -ne 0) { Die 'pip install failed' }
+    if ($env:OS -eq 'Windows_NT') {
+      & $VenvPy -m pip install --quiet -r "$Root\worker\requirements-windows.txt"
+      if ($LASTEXITCODE -ne 0) { Die 'Windows MT5 dependency install failed' }
+    }
     Ok 'python deps installed'
 
     Step 'Web deps (npm ci)'
@@ -344,6 +370,74 @@ function Do-Up {
   Info 'stop all:        ./run-local.ps1 down'
 }
 
+function Do-Mt5Worker {
+  Get-VenvPy | Out-Null
+  if (Portable) { Die 'MT5 worker requires the Docker PostgreSQL/Redis ports or system services on :5432/:6379' }
+  if (-not (Test-Port 5432)) { Die 'no PostgreSQL on :5432' }
+  if (-not (Test-Port 6379)) { Die 'no Redis on :6379' }
+
+  Apply-Env
+  $env:PROTRIX_DATABASE_URL = Db-Url
+  $env:PROTRIX_REDIS_URL = Redis-Url
+  $env:PYTHONPATH = "$Root\contracts\python;$Root\worker"
+  if ($env:PROTRIX_EXECUTION_ADAPTER -ne 'mt5') { Die 'infra/.env must set PROTRIX_EXECUTION_ADAPTER=mt5' }
+  if ($env:PROTRIX_MT5_TRADING_ENABLED -ne 'true') { Die 'infra/.env must set PROTRIX_MT5_TRADING_ENABLED=true' }
+
+  Step 'Launching native MT5 demo worker'
+  $mode = if ($Windows) { 'visible window' } else { 'hidden, logs in .run-local\logs' }
+  Info $mode
+  $wkId = Launch 'protrix-mt5-worker' "$Root\worker" "& '$VenvPy' -m app.main"
+  Save-State @{
+    mode = 'native-mt5'; api = $null; worker = $wkId; web = $null; redis = $null
+  }
+  Info 'waiting for MT5 worker health...'
+  $w = Wait-Port 8100 45
+  Write-Host ''
+  Ok ("worker http://localhost:8100/health   " + $(if ($w) { 'UP' } else { 'starting (check .run-local\logs)' }))
+  if (-not $w) { Die 'native MT5 worker did not start' }
+}
+
+function Do-TradingViewGateway {
+  Get-VenvPy | Out-Null
+  Load-DotEnv
+  if (-not (Test-Port 8000)) { Die 'API is not reachable on :8000' }
+  if (Test-Port 9000) { Die 'port :9000 is already in use' }
+
+  $cloudflared = Join-Path $RunDir 'cloudflared.exe'
+  if (-not (Test-Path -LiteralPath $cloudflared)) {
+    Die 'cloudflared is missing; place the official Windows binary at .run-local\cloudflared.exe'
+  }
+
+  New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+  $gatewayId = Launch 'protrix-tradingview-gateway' $Root "& '$VenvPy' '$Root\infra\scripts\tradingview_gateway.py' --port 9000"
+  if (-not (Wait-Port 9000 15)) { Die 'TradingView gateway did not start' }
+
+  $tunnelOut = Join-Path $LogDir 'protrix-tradingview-tunnel.log'
+  $tunnelErr = Join-Path $LogDir 'protrix-tradingview-tunnel.err.log'
+  if (Test-Path $tunnelOut) { Remove-Item -LiteralPath $tunnelOut -Force }
+  if (Test-Path $tunnelErr) { Remove-Item -LiteralPath $tunnelErr -Force }
+  $tunnel = Start-Process -FilePath $cloudflared `
+    -ArgumentList @('tunnel', '--no-autoupdate', '--edge-ip-version', '4', '--url', 'http://127.0.0.1:9000') `
+    -WorkingDirectory $RunDir -WindowStyle Hidden -PassThru `
+    -RedirectStandardOutput $tunnelOut -RedirectStandardError $tunnelErr
+  Start-Sleep -Seconds 8
+
+  $logText = ''
+  foreach ($f in @($tunnelOut, $tunnelErr)) { if (Test-Path $f) { $logText += (Get-Content $f -Raw) } }
+  $url = [regex]::Match($logText, 'https://[a-z0-9-]+\.trycloudflare\.com(?=\s|$)').Value
+  if (-not $url) { Die "Cloudflare tunnel did not publish a URL (see $tunnelErr)" }
+  if (-not $env:PROTRIX_TRADINGVIEW_WEBHOOK_SECRET) { Die 'infra/.env is missing PROTRIX_TRADINGVIEW_WEBHOOK_SECRET' }
+
+  Save-State @{
+    mode = 'native-mt5-tradingview'; api = $null; worker = $null; web = $null
+    redis = $null; gateway = $gatewayId; tunnel = $tunnel.Id
+  }
+  Write-Host ''
+  Ok "TradingView tunnel: $url"
+  Info "Webhook URL: $url/webhook/tradingview/$($env:PROTRIX_TRADINGVIEW_WEBHOOK_SECRET)"
+  Info 'stop gateway + tunnel: ./run-local.ps1 down'
+}
+
 function Do-Status {
   $pgP = if (Portable) { $PG_PORT } else { 5432 }
   $rdP = if (Portable) { $REDIS_PORT } else { 6379 }
@@ -371,7 +465,7 @@ function Do-Status {
 function Do-Down {
   $s = Load-State
   if ($s) {
-    foreach ($k in 'api', 'worker', 'web') { if ($s.$k) { Info "stop $k (pid $($s.$k))"; Kill-Tree ([int]$s.$k) } }
+    foreach ($k in 'api', 'worker', 'web', 'gateway', 'tunnel') { if ($s.$k) { Info "stop $k (pid $($s.$k))"; Kill-Tree ([int]$s.$k) } }
     if ($s.redis) { Kill-Tree ([int]$s.redis) }
   }
   Get-Process powershell -ErrorAction SilentlyContinue |
@@ -380,6 +474,12 @@ function Do-Down {
   Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -match 'app\.main|uvicorn app\.main' -and $_.CommandLine -match [regex]::Escape($Venv) } |
     ForEach-Object { Kill-Tree $_.ProcessId }
+  Get-CimInstance Win32_Process -Filter "Name='python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -match 'tradingview_gateway\.py' -and $_.CommandLine -match [regex]::Escape($Root) } |
+    ForEach-Object { Kill-Tree $_.ProcessId }
+  Get-Process cloudflared -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq (Join-Path $RunDir 'cloudflared.exe') } |
+    ForEach-Object { Kill-Tree $_.Id }
   if (Portable) { Stop-PortablePg; Stop-PortableRedis }
   if (Test-Path $PidFile) { Remove-Item $PidFile -Force }
   Ok 'stopped (data kept - use `teardown` to remove .localstack)'
@@ -414,6 +514,8 @@ Protrixplus S0 - run WITHOUT Docker, without touching anything installed.
   ./run-local.ps1 bootstrap   download portable PostgreSQL 16 + Redis into .localstack (~300 MB)
   ./run-local.ps1 setup       venv + python deps + npm ci + alembic upgrade + seed
   ./run-local.ps1 up          start infra + api + worker + web   (add -Windows for visible windows)
+  ./run-local.ps1 mt5-worker  start the native Windows MT5 demo worker only
+  ./run-local.ps1 tradingview-gateway  expose only the webhook through HTTPS
   ./run-local.ps1 status      ports + /health
   ./run-local.ps1 down        stop everything this script started (keeps data)
   ./run-local.ps1 reset       wipe + re-migrate + re-seed the database
@@ -436,6 +538,8 @@ switch ($Command) {
   'bootstrap' { Do-Bootstrap }
   'setup'     { Do-Setup }
   'up'        { Do-Up }
+  'mt5-worker' { Do-Mt5Worker }
+  'tradingview-gateway' { Do-TradingViewGateway }
   'status'    { Do-Status }
   'down'      { Do-Down }
   'reset'     { Do-Reset }

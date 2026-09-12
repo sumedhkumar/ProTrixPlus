@@ -70,6 +70,7 @@ def _consumer_loop(cfg: WorkerConfig, redis: Redis, adapter: object, stop: threa
                 group=cfg.consumer_group,
                 consumer=cfg.consumer_name,
                 reclaim_idle_ms=cfg.reclaim_idle_ms,
+                active_user_email=cfg.mt5_user_email if cfg.execution_adapter == "mt5" else None,
             )
         except Exception:
             log.exception("consumer loop error")
@@ -78,7 +79,7 @@ def _consumer_loop(cfg: WorkerConfig, redis: Redis, adapter: object, stop: threa
 
 def main() -> int:
     cfg = WorkerConfig.from_env()
-    configure_logging(level=cfg.log_level, service=cfg.service_name)
+    configure_logging(level=cfg.log_level, service=cfg.service_name, secrets=[cfg.mt5_password])
     log.info("worker starting name=%s adapter=%s", cfg.consumer_name, cfg.execution_adapter)
 
     init_db(cfg.database_url)
@@ -86,7 +87,7 @@ def main() -> int:
     _wait_for_deps(redis)
 
     ensure_group(redis, cfg.signal_stream, cfg.consumer_group)
-    adapter = build_adapter(cfg.execution_adapter, session_factory(), redis)
+    adapter = build_adapter(cfg.execution_adapter, session_factory(), redis, cfg)
 
     start_health_server(
         port=cfg.health_port,
@@ -97,7 +98,11 @@ def main() -> int:
 
     if cfg.catch_up_on_start:
         try:
-            run_catch_up(session_factory(), adapter)
+            run_catch_up(
+                session_factory(),
+                adapter,
+                active_user_email=cfg.mt5_user_email if cfg.execution_adapter == "mt5" else None,
+            )
         except Exception:
             log.exception("startup catch-up failed (continuing)")
 

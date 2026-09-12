@@ -39,6 +39,9 @@ class Settings(BaseSettings):
 
     # Mock webhook ingress auth (stands in for a signed TradingView source).
     webhook_shared_secret: SecretStr = SecretStr("dev-webhook-token-change-me")
+    # Secret path segment for direct TradingView alert delivery. This is
+    # separate from the simulator header secret so local tooling keeps working.
+    tradingview_webhook_secret: SecretStr = SecretStr("")
 
     # Redis stream the worker consumes signal events from.
     signal_stream: str = "protrix.signals.v1"
@@ -53,6 +56,7 @@ class Settings(BaseSettings):
         values = [
             self.dev_jwt_secret.get_secret_value(),
             self.webhook_shared_secret.get_secret_value(),
+            self.tradingview_webhook_secret.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):

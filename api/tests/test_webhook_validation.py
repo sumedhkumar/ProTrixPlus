@@ -30,6 +30,19 @@ def test_wrong_webhook_token_is_401(client_no_db: TestClient) -> None:
     assert r.status_code == 401
 
 
+def test_tradingview_path_token_is_accepted_for_direct_alerts(client_no_db: TestClient) -> None:
+    r = client_no_db.post(
+        "/webhook/tradingview/dev-webhook-token-change-me",
+        json={"action": "buy"},
+    )
+    assert r.status_code == 422
+
+
+def test_tradingview_path_token_is_required(client_no_db: TestClient) -> None:
+    r = client_no_db.post("/webhook/tradingview/wrong-token-value", json=VALID)
+    assert r.status_code == 401
+
+
 def test_non_json_body_is_400(client_no_db: TestClient) -> None:
     r = client_no_db.post("/webhook/tradingview", content=b"not json", headers=TOKEN_HEADER)
     assert r.status_code == 400

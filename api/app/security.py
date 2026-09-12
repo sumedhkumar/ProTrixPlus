@@ -9,8 +9,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import lru_cache
+from hmac import compare_digest
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Path, status
 from protrix_contracts.db.models import UserRole
 
 from app.config import Settings, get_settings
@@ -72,8 +73,31 @@ def webhook_authorized(
 ) -> None:
     """Mock stand-in for a signed TradingView source. Wrong/missing token -> 401,
     and the request never reaches persistence."""
-    expected = settings.webhook_shared_secret.get_secret_value()
-    if not x_webhook_token or x_webhook_token != expected:
+    _require_webhook_token(
+        x_webhook_token,
+        settings.webhook_shared_secret.get_secret_value(),
+    )
+
+
+def tradingview_path_authorized(
+    webhook_token: str = Path(..., min_length=16, max_length=256),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Authorize TradingView using a secret URL path segment.
+
+    TradingView alert configuration supplies a URL and request body, but does
+    not provide a UI for custom request headers. The path-secret route keeps
+    the existing header-authenticated simulator route intact while providing a
+    direct TradingView-compatible ingress.
+    """
+    _require_webhook_token(
+        webhook_token,
+        settings.tradingview_webhook_secret.get_secret_value(),
+    )
+
+
+def _require_webhook_token(provided: str | None, expected: str) -> None:
+    if not expected or not provided or not compare_digest(provided, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="webhook not authorized"
         )

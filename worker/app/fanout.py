@@ -41,7 +41,11 @@ _INTENT_UNIQUE = "uq_order_intents_user_id_strategy_id_signal_id_command_target"
 
 
 def process_signal(
-    session: Session, signal_row_id: str | uuid.UUID, adapter: ExecutionAdapter
+    session: Session,
+    signal_row_id: str | uuid.UUID,
+    adapter: ExecutionAdapter,
+    *,
+    active_user_email: str | None = None,
 ) -> list[Execution]:
     signal = session.get(Signal, uuid.UUID(str(signal_row_id)))
     if signal is None:
@@ -64,7 +68,7 @@ def process_signal(
 
     command_target = command_target_for_action(signal.action).value
 
-    pairs = session.execute(
+    assignment_query = (
         select(StrategyAssignment, User)
         .join(User, StrategyAssignment.user_id == User.id)
         .where(
@@ -72,8 +76,10 @@ def process_signal(
             StrategyAssignment.status == "ACTIVE",
             User.is_active.is_(True),
         )
-        .order_by(User.created_at)
-    ).all()
+    )
+    if active_user_email:
+        assignment_query = assignment_query.where(User.email == active_user_email)
+    pairs = session.execute(assignment_query.order_by(User.created_at)).all()
 
     touched: list[Execution] = []
     for assignment, user in pairs:

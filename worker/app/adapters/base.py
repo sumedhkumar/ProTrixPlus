@@ -32,6 +32,8 @@ class OrderIntentDTO:
     command_target: str
     stop_loss: Decimal | None = None
     take_profit: Decimal | None = None
+    position_ref: str | None = None
+    close_fraction: Decimal | None = None
 
 
 @dataclass(frozen=True)

@@ -67,6 +67,7 @@ def _account_ref(intent: OrderIntent) -> str:
 
 
 def _dto(intent: OrderIntent, client_order_id: str) -> OrderIntentDTO:
+    signal = intent.signal
     return OrderIntentDTO(
         client_order_id=client_order_id,
         account_ref=_account_ref(intent),
@@ -75,6 +76,10 @@ def _dto(intent: OrderIntent, client_order_id: str) -> OrderIntentDTO:
         volume=intent.computed_lot,
         action=intent.action,
         command_target=intent.command_target,
+        stop_loss=signal.stop_loss if signal else None,
+        take_profit=signal.take_profit if signal else None,
+        position_ref=signal.position_ref if signal else None,
+        close_fraction=signal.close_fraction if signal else None,
     )
 
 

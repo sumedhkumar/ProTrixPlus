@@ -38,7 +38,10 @@ def _is_nogroup(exc: BaseException) -> bool:
 
 
 def _handle(
-    session_factory: sessionmaker[Session], fields: dict[str, str], adapter: ExecutionAdapter
+    session_factory: sessionmaker[Session],
+    fields: dict[str, str],
+    adapter: ExecutionAdapter,
+    active_user_email: str | None,
 ) -> None:
     aggregate_id = fields.get("aggregate_id")
     aggregate_type = fields.get("aggregate_type", "signal")
@@ -47,7 +50,12 @@ def _handle(
         return
     session = session_factory()
     try:
-        process_signal(session, uuid.UUID(aggregate_id), adapter)
+        process_signal(
+            session,
+            uuid.UUID(aggregate_id),
+            adapter,
+            active_user_email=active_user_email,
+        )
     finally:
         session.close()
 
@@ -61,6 +69,7 @@ def consume_once(
     group: str,
     consumer: str,
     reclaim_idle_ms: int,
+    active_user_email: str | None = None,
     block_ms: int = 2000,
     count: int = 10,
 ) -> int:
@@ -113,7 +122,7 @@ def consume_once(
     processed = 0
     for msg_id, fields in entries:
         try:
-            _handle(session_factory, fields, adapter)
+            _handle(session_factory, fields, adapter, active_user_email)
             redis.xack(stream, group, msg_id)
             processed += 1
         except Exception:

@@ -1,0 +1,3 @@
+# Native Windows-only dependency for the local MT5 adapter.
+# Keep this out of worker/requirements.txt because Docker runs Linux.
+MetaTrader5==5.0.6180

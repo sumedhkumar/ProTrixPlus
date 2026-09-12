@@ -21,7 +21,7 @@ from protrix_contracts.envelope import EnvelopeValidationError
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.security import webhook_authorized
+from app.security import tradingview_path_authorized, webhook_authorized
 from app.services.ingest import SignalConflictError, accept_signal
 
 log = logging.getLogger("api.webhook")
@@ -34,6 +34,29 @@ async def ingest_tradingview(
     response: Response,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    return await _ingest(request, response, db, normalize_tradingview=False)
+
+
+@router.post(
+    "/tradingview/{webhook_token}",
+    dependencies=[Depends(tradingview_path_authorized)],
+)
+async def ingest_tradingview_alert(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Direct TradingView ingress authenticated by the URL path secret."""
+    return await _ingest(request, response, db, normalize_tradingview=True)
+
+
+async def _ingest(
+    request: Request,
+    response: Response,
+    db: Session,
+    *,
+    normalize_tradingview: bool,
+) -> dict[str, Any]:
     raw = await request.body()
     try:
         # parse_float=Decimal: never let a wire number become a binary float.
@@ -42,6 +65,9 @@ async def ingest_tradingview(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid JSON: {exc.msg}"
         ) from exc
+
+    if normalize_tradingview and isinstance(payload, dict):
+        payload = _normalize_tradingview_payload(payload)
 
     try:
         result = accept_signal(db, payload)
@@ -61,3 +87,15 @@ async def ingest_tradingview(
         "signal_row_id": result.signal_row_id,
         "payload_hash": result.payload_hash,
     }
+
+
+def _normalize_tradingview_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Normalize TradingView strategy placeholders to the frozen wire contract."""
+    normalized = dict(payload)
+    action = normalized.get("action")
+    if isinstance(action, str) and action.lower() in {"buy", "sell"}:
+        normalized["action"] = action.upper()
+    timeframe = normalized.get("timeframe")
+    if isinstance(timeframe, str) and timeframe.isdigit():
+        normalized["timeframe"] = f"{timeframe}m"
+    return normalized

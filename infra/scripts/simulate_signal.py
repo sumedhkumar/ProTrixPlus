@@ -26,7 +26,14 @@ def _now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def build_envelope(signal_id: str, *, action: str, symbol: str) -> dict:
+def build_envelope(
+    signal_id: str,
+    *,
+    action: str,
+    symbol: str,
+    stop_loss: str | None = None,
+    take_profit: str | None = None,
+) -> dict:
     env = {
         "schema_version": "1.0",
         "strategy_key": "trend-rider",
@@ -41,9 +48,10 @@ def build_envelope(signal_id: str, *, action: str, symbol: str) -> dict:
             "note": "informational only - not authoritative",
         },
     }
-    if action == "BUY":
-        env["stop_loss"] = "1.07500"
-        env["take_profit"] = "1.09000"
+    if stop_loss is not None:
+        env["stop_loss"] = stop_loss
+    if take_profit is not None:
+        env["take_profit"] = take_profit
     return env
 
 
@@ -76,6 +84,8 @@ def main() -> int:
     ap.add_argument("--signal-id", default=None, help="fixed id (to test idempotency)")
     ap.add_argument("--action", default="BUY", choices=["BUY", "SELL"])
     ap.add_argument("--symbol", default="EURUSD")
+    ap.add_argument("--stop-loss", default=None)
+    ap.add_argument("--take-profit", default=None)
     args = ap.parse_args()
 
     rc = 0
@@ -84,7 +94,13 @@ def main() -> int:
         status, body = post(
             args.api_url,
             args.token,
-            build_envelope(sid, action=args.action, symbol=args.symbol),
+            build_envelope(
+                sid,
+                action=args.action,
+                symbol=args.symbol,
+                stop_loss=args.stop_loss,
+                take_profit=args.take_profit,
+            ),
         )
         print(f"[{i + 1}/{args.count}] {status} {json.dumps(body)}")
         if status not in (200, 202):

@@ -14,6 +14,7 @@ htmlcov/
 # Node / Next
 node_modules/
 web/.next/
+apps/web/.next/
 web/out/
 web/playwright-report/
 web/test-results/
@@ -34,6 +35,7 @@ dist/
 build/
 web/tsconfig.tsbuildinfo
 *.tsbuildinfo
+*.db
 
 # run-without-docker helper state
 .run-local/

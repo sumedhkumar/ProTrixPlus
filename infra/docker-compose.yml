@@ -54,6 +54,7 @@ services:
       PROTRIX_DEV_JWT_SECRET: ${PROTRIX_DEV_JWT_SECRET:-dev-only-not-a-real-secret-change-me}
       PROTRIX_DEV_JWT_ISSUER: protrixplus-dev-identity
       PROTRIX_WEBHOOK_SHARED_SECRET: ${PROTRIX_WEBHOOK_SHARED_SECRET:-dev-webhook-token-change-me}
+      PROTRIX_TRADINGVIEW_WEBHOOK_SECRET: ${PROTRIX_TRADINGVIEW_WEBHOOK_SECRET:-}
     ports:
       - "${PROTRIX_API_PORT:-8000}:8000"
     depends_on:
