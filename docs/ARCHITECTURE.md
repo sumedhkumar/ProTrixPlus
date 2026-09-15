@@ -1,8 +1,10 @@
-# Protrixplus architecture (S0 skeleton)
+# Protrixplus architecture (MVP)
 
-S0 is a **stable local foundation**: fake users, mock TradingView signals, a mock
-MT5 executor. Zero paid infra, zero real credentials. Everything external is a
-local mock or a stub adapter behind an interface.
+The MVP is a **local, demo-first trading control plane**: durable
+TradingView-compatible signals, server-enforced eligibility/risk, managed
+position attribution, a mock Docker executor, and an optional native Windows
+MT5 demo adapter. MetaApi remains a later adapter implementation; no paid
+MetaApi account or credential is required today.
 
 ## Services
 
@@ -39,8 +41,8 @@ local mock or a stub adapter behind an interface.
 | --- | --- |
 | `contracts/` | Frozen webhook JSON Schema (v1.0), canonical hashing, execution lifecycle, Decimal money helpers, **and** the shared SQLAlchemy models. Installed into api + worker as `protrix-contracts`. |
 | `api/` | FastAPI: webhook ingress, dashboard read APIs, mock dev identity, Alembic migrations, credential-vault stub. |
-| `worker/` | Outbox relay, signal fan-out, placeholder eligibility, intent creation, mock execution + reconciliation, catch-up sweep. |
-| `web/` | Next.js App Router: `/dashboard` (USER shell), `/admin` (SUPER_ADMIN shell), mock sign-in. |
+| `worker/` | Outbox relay, signal fan-out, subscription/wallet/account/risk eligibility, managed-position ownership, mock/native-MT5 execution + reconciliation, catch-up sweep. |
+| `web/` | Next.js App Router: `/dashboard` (USER portfolio) and `/admin` (SUPER_ADMIN operations), with local dev sign-in. |
 | `infra/` | `docker-compose.yml`, `.env.example`, postgres init, signal simulator. |
 | `tests/` | Integration + e2e against the composed stack. |
 | `docs/` | This file, `README.md`, `adr/`, `steps/`. |
@@ -59,12 +61,12 @@ schema straight from that metadata; later migrations are explicit `op.*` deltas.
 | Invariant | Mechanism |
 | --- | --- |
 | Durable before acknowledge | `api/app/services/ingest.py` commits signal + outbox row **before** the endpoint returns 2xx. Traced by `tests/test_slice_end_to_end.py` (fresh-connection read). |
-| No duplicate intent | DB unique constraint `uq_order_intents_user_id_strategy_id_signal_id_command_target`; fan-out inserts `ON CONFLICT DO NOTHING`. Traced by `worker/tests/test_fanout.py`, `tests/test_worker_restart.py`. |
+| No duplicate intent | DB unique constraint `uq_order_intents_signal_op_key`; fan-out upserts by user, strategy, signal, command target, and execution key. A directional reversal uses each mapped opposite position reference as its close key. |
 | Idempotent acceptance | `uq_signals_idempotency_key` + fast-path lookup + `IntegrityError` fallback. Repeated id → 200 `duplicate:true`, no new rows. Traced by `tests/test_duplicate_signal.py`, `api/tests/test_ingest.py`. |
 | Decimal money / lots | `Numeric` columns everywhere; `contracts/protrix_contracts/money.py` (`ROUND_HALF_EVEN` for money, `ROUND_DOWN` for lots); wire values are strings; api parses JSON with `parse_float=Decimal`. |
 | UTC timestamps | `timestamptz` columns; `ALTER DATABASE … SET timezone UTC`; app writes `datetime.now(UTC)`. |
 | No secret in logs | `SecretRedactionFilter` on the root logger in api + worker; `SecretStr` config; `/health` returns no secrets. |
-| UNKNOWN ≠ FAILED | Lifecycle state machine: `UNKNOWN` only transitions to `RECONCILED`; there is **no** edge that re-sends. `reconcile_unknown()` calls `sync_positions`, never `place`. Traced by `worker/tests/test_execution_lifecycle.py`, `tests/test_executor_timeout_unknown.py`. |
+| UNKNOWN ≠ FAILED | Lifecycle state machine: `UNKNOWN` only transitions to `RECONCILED`; there is **no** edge that re-sends. A periodic worker loop reconciles unknown entries with `sync_positions`, never `place`. Unknown management commands remain visible for operator review because a snapshot cannot prove a lost close/modify result. |
 
 ## Transactional outbox
 
@@ -76,7 +78,7 @@ messages stranded by a dead consumer before reading new ones, and only `XACK`s
 after fan-out commits. Combined with idempotent fan-out and a startup catch-up
 sweep, a worker crash/restart loses nothing and duplicates nothing.
 
-## Extension points (Steps 05+)
+## Extension points
 
 | Seam | File | Replacement |
 | --- | --- | --- |
@@ -87,7 +89,9 @@ sweep, a worker crash/restart loses nothing and duplicates nothing.
 | `compute_lot()` | `worker/app/sizing.py` | full risk-aware sizing |
 | webhook auth | `api/app/security.py::webhook_authorized` | signed TradingView verification |
 
-## Not in S0 (deliberately)
+## Still deliberately deferred
 
-Real brokers/MT5 libraries, live TradingView alerts, cloud services, IST
-settlement schedule display, business features beyond the vertical slice.
+MetaApi credentials and paid transport, production identity, a real credential
+vault, broker-specific reconciliation proof for management timeouts, and
+live-account enablement. See [MVP-HANDOFF.md](MVP-HANDOFF.md) for the
+parallel-work split and MetaApi cutover sequence.

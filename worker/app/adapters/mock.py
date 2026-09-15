@@ -48,6 +48,9 @@ class MockExecutionAdapter:
     # -- ExecutionAdapter ---------------------------------------------------
 
     def place(self, order: OrderIntentDTO) -> PlaceResult:
+        if order.command_target != "ENTRY":
+            return self._place_management(order)
+
         ticket_id = _det_id("T", order.client_order_id)
         deal_id = _det_id("D", order.client_order_id + ":deal")
         armed = bool(self._redis.delete(ARM_TIMEOUT_KEY))
@@ -83,6 +86,52 @@ class MockExecutionAdapter:
                 "deal": deal_id,
                 "account": order.account_ref,
             },
+        )
+
+    def _place_management(self, order: OrderIntentDTO) -> PlaceResult:
+        """Model a mapped management command without accepting an arbitrary ticket."""
+        if not order.broker_position_ref:
+            return PlaceResult(
+                ticket_id="",
+                deal_id="",
+                status="REJECTED",
+                raw={"reason": "managed_position_not_found", "account_ref": order.account_ref},
+            )
+        with self._sf() as session:
+            position = session.scalar(
+                select(MockBrokerDeal).where(MockBrokerDeal.ticket_id == order.broker_position_ref)
+            )
+            if position is None or position.status != "OPEN":
+                return PlaceResult(
+                    ticket_id="",
+                    deal_id="",
+                    status="REJECTED",
+                    raw={"reason": "managed_position_not_open", "account_ref": order.account_ref},
+                )
+            ticket_id = _det_id("T", order.client_order_id)
+            deal_id = _det_id("D", order.client_order_id + ":deal")
+            action = order.action.upper()
+            status = "MODIFIED" if action == "MODIFY_SLTP" else "CLOSED"
+            volume = position.volume
+            if action == "PARTIAL_CLOSE" and order.close_fraction is not None:
+                volume = Decimal(position.volume) * order.close_fraction
+            session.add(
+                MockBrokerDeal(
+                    client_order_id=order.client_order_id,
+                    ticket_id=ticket_id,
+                    deal_id=deal_id,
+                    symbol=position.symbol,
+                    volume=volume,
+                    side=position.side,
+                    status=status,
+                )
+            )
+            session.commit()
+        return PlaceResult(
+            ticket_id=ticket_id,
+            deal_id=deal_id,
+            status="ACKNOWLEDGED",
+            raw={"broker": "mock-mt5", "account": order.account_ref, "management": action},
         )
 
     def sync_positions(self, account_ref: str) -> list[BrokerPosition]:

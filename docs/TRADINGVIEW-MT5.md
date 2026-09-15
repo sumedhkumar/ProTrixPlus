@@ -2,19 +2,21 @@
 
 The application does not read a TradingView chart or strategy directly. A
 TradingView strategy must fire an alert, and TradingView sends that alert to
-the application's webhook. The native Windows worker then submits eligible
-BUY/SELL entries to Alice's MetaQuotes-Demo MT5 account.
+the application's webhook. Each healthy native Windows worker then submits
+eligible orders only for its own configured MetaQuotes-Demo account.
 
 ## Local prerequisites
 
-1. Keep MetaTrader 5 logged into the configured demo account with Algo Trading
-   enabled.
-2. Keep the Docker PostgreSQL, Redis, API, and web services running. The Docker
-   worker must remain stopped; the native worker owns MT5 execution.
-3. Run the native worker:
+1. Keep MetaTrader 5 logged into every configured demo account with Algo
+   Trading and external Python API trading enabled.
+2. Keep the Docker PostgreSQL, Redis, API, worker, and web services running.
+   The Docker worker is the safe mock route; native workers own their separate
+   MT5 demo routes.
+3. Run each native worker on its own health port:
 
    ```powershell
-   .\run-local.ps1 mt5-worker
+   .\run-local.ps1 mt5-worker -HealthPort 8102
+   .\run-local.ps1 mt5-worker -ProfileFile infra\.env.mt5-account2.local
    ```
 
 4. Expose the narrow local gateway through a public HTTPS tunnel. TradingView
@@ -63,12 +65,16 @@ uppercase by the direct TradingView route.
 The backend's stored strategy assignment remains authoritative for lot sizing;
 values such as `master_lot_info` from the alert are informational only.
 
-## Important limitation before enabling exits
+## Direction-only alerts and position safety
 
-The current MT5 adapter accepts BUY/SELL entries only. It does not infer
-whether a TradingView SELL is a new short or an exit from a long position, and
-it rejects management commands until a stable `position_ref` mapping is
-provided. Do not use a generic order-fill message for exits. Confirm the
-strategy's exit format and position mapping before enabling automated closes.
+The normal BUY/SELL alert body is directional. If an app-tracked position is
+open in the opposite direction for the same strategy and symbol, the worker
+first closes that mapped position and opens the new direction only after the
+close fills. Repeated same-direction alerts do not pyramid by default.
+
+Explicit `CLOSE`, `PARTIAL_CLOSE`, `MODIFY_SLTP`, and `EMERGENCY_CLOSE` alerts
+must supply the app's `position_ref`; the worker maps that reference to its own
+user- and strategy-owned broker position. A webhook never supplies a broker
+ticket directly.
 
 Never include MT5 credentials in the TradingView alert body.

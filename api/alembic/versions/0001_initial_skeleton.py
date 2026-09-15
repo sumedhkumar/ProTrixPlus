@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from sqlalchemy import MetaData
 from alembic import op
 
 from protrix_contracts.db import metadata as target_metadata
@@ -42,10 +43,34 @@ DROP TRIGGER IF EXISTS audit_events_no_update_delete ON audit_events;
 DROP FUNCTION IF EXISTS audit_events_block_mutation();
 """
 
+# Keep the initial migration a stable S0 snapshot. ``target_metadata`` now
+# contains post-S0 tables too, so letting this historical migration call
+# ``target_metadata.create_all`` directly would make a fresh upgrade create
+# rent tables before revision 0002 gets to install their guards.
+_S0_TABLES = {
+    "users",
+    "strategies",
+    "strategy_assignments",
+    "signals",
+    "outbox",
+    "order_intents",
+    "executions",
+    "audit_events",
+    "mock_broker_deals",
+}
+
+
+def _s0_metadata() -> MetaData:
+    metadata = MetaData(naming_convention=target_metadata.naming_convention)
+    for table in target_metadata.sorted_tables:
+        if table.name in _S0_TABLES:
+            table.to_metadata(metadata)
+    return metadata
+
 
 def upgrade() -> None:
     bind = op.get_bind()
-    target_metadata.create_all(bind=bind)
+    _s0_metadata().create_all(bind=bind)
     op.execute(_AUDIT_GUARD)
 
 

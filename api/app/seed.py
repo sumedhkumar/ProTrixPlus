@@ -8,11 +8,22 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from protrix_contracts.db.models import (
+    AccountCategory,
+    AccountTransport,
+    RentLedgerEntry,
+    RentLedgerEntryType,
+    RiskProfile,
     Strategy,
     StrategyAssignment,
+    Subscription,
+    SubscriptionStatus,
+    TradingControl,
+    TradingAccount,
+    TradingAccountStatus,
     User,
     UserRole,
 )
@@ -78,6 +89,64 @@ def seed() -> None:
         for slug, role, _name, _email in FAKE_USERS:
             if role != "USER":
                 continue
+            now = datetime.now(UTC)
+            session.execute(
+                pg_insert(TradingAccount)
+                .values(
+                    id=user_id(slug),
+                    user_id=user_id(slug),
+                    provider_name="Local development",
+                    server_identifier="MOCK_SERVER",
+                    category=AccountCategory.DEMO.value,
+                    transport=AccountTransport.MOCK.value,
+                    status=TradingAccountStatus.ACTIVE.value,
+                    credential_key_ref=f"local-profile:{slug}",
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+            session.execute(
+                pg_insert(Subscription)
+                .values(
+                    id=uuid.uuid5(_NS, f"subscription:{slug}"),
+                    user_id=user_id(slug),
+                    plan_code="MVP_DEMO",
+                    status=SubscriptionStatus.ACTIVE.value,
+                    starts_at=now,
+                    ends_at=now + timedelta(days=365),
+                )
+                .on_conflict_do_nothing(index_elements=["user_id"])
+            )
+            session.execute(
+                pg_insert(TradingControl)
+                .values(id=uuid.uuid5(_NS, f"control:{slug}"), user_id=user_id(slug))
+                .on_conflict_do_nothing(index_elements=["user_id"])
+            )
+            session.execute(
+                pg_insert(RiskProfile)
+                .values(
+                    id=uuid.uuid5(_NS, f"risk:{slug}"),
+                    user_id=user_id(slug),
+                    max_lot=Decimal("2.00"),
+                    max_open_trades=10,
+                    max_daily_loss=Decimal("1000.00"),
+                    allowed_symbols=["XAUUSD", "EURUSD"],
+                )
+                .on_conflict_do_nothing(index_elements=["user_id"])
+            )
+            session.execute(
+                pg_insert(RentLedgerEntry)
+                .values(
+                    id=uuid.uuid5(_NS, f"demo-credit:{slug}"),
+                    user_id=user_id(slug),
+                    entry_type=RentLedgerEntryType.TOP_UP.value,
+                    amount=Decimal("1000.00"),
+                    idempotency_key=f"seed:demo-credit:{slug}",
+                    source_ref="MVP_DEMO",
+                    reason="local demo starting wallet balance",
+                    actor="seed",
+                )
+                .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            )
             session.execute(
                 pg_insert(StrategyAssignment)
                 .values(

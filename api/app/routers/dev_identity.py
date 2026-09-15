@@ -20,7 +20,8 @@ from app.security import get_identity_provider
 
 class DevLoginRequest(BaseModel):
     role: UserRole = UserRole.USER
-    subject: str | None = None  # specific user id; defaults to first of that role
+    subject: str | None = None  # specific user id
+    email: str | None = None  # specific seeded user email
 
 
 class DevLoginResponse(BaseModel):
@@ -46,9 +47,17 @@ def dev_login(
     db: Session = Depends(get_db),
     provider: IdentityProvider = Depends(get_identity_provider),
 ) -> DevLoginResponse:
+    if body.subject and body.email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="provide either subject or email, not both",
+        )
+
     stmt = select(User).where(User.is_active.is_(True))
     if body.subject:
         stmt = stmt.where(User.id == body.subject)
+    elif body.email:
+        stmt = stmt.where(User.email == body.email)
     else:
         stmt = stmt.where(User.role == body.role.value).order_by(User.created_at)
     user = db.scalars(stmt).first()
@@ -57,10 +66,10 @@ def dev_login(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="no seeded user matches; run the seed",
         )
-    if body.subject and user.role != body.role.value:
+    if (body.subject or body.email) and user.role != body.role.value:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="requested subject does not have the requested role",
+            detail="requested user does not have the requested role",
         )
 
     token = provider.issue(

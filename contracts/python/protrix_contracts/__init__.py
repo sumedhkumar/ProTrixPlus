@@ -11,6 +11,7 @@ on at all times:
   its transition validator.
 * :mod:`protrix_contracts.money` - Decimal helpers with explicit rounding. No
   binary floats anywhere near money, lots, prices or rates.
+* :mod:`protrix_contracts.rent` - deterministic rent calculation rules.
 * :mod:`protrix_contracts.db` - shared SQLAlchemy models and session helpers.
   PostgreSQL is the source of truth; these models declare the constraints that
   the database enforces.
@@ -31,6 +32,12 @@ from protrix_contracts.lifecycle import (
     assert_transition,
     can_transition,
 )
+from protrix_contracts.rent import (
+    DEFAULT_RENT_RATE,
+    calculate_rent_due,
+    signed_rent_charge,
+    validate_rent_rate,
+)
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -45,6 +52,10 @@ __all__ = [
     "InvalidTransitionError",
     "assert_transition",
     "can_transition",
+    "DEFAULT_RENT_RATE",
+    "calculate_rent_due",
+    "signed_rent_charge",
+    "validate_rent_rate",
 ]
 
 __version__ = "1.0.0"

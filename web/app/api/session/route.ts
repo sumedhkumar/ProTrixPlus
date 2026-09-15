@@ -13,7 +13,11 @@ interface DevLoginResponse {
 
 /** POST /api/session { role } -> sets the dev identity cookie via api /dev/login. */
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { role?: unknown; subject?: unknown };
+  const body = (await req.json().catch(() => ({}))) as {
+    role?: unknown;
+    subject?: unknown;
+    email?: unknown;
+  };
   const role = isRole(body.role) ? body.role : "USER";
 
   let login: DevLoginResponse;
@@ -24,6 +28,7 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         role,
         subject: typeof body.subject === "string" ? body.subject : null,
+        email: typeof body.email === "string" ? body.email : null,
       }),
     });
   } catch (err) {

@@ -1,11 +1,13 @@
 import { redirect } from "next/navigation";
 
 import { ExecutionsTable } from "@/components/ExecutionsTable";
+import { AdminControls } from "@/components/AdminControls";
 import { IdentityBar } from "@/components/IdentityBar";
 import { SignalsTable } from "@/components/SignalsTable";
 import {
   apiFetch,
   type AdminAssignment,
+  type AdminOperation,
   type AdminUser,
   type ExecutionView,
   type Identity,
@@ -33,12 +35,16 @@ export default async function AdminPage() {
     redirect("/dashboard");
   }
 
-  const [users, assignments, signals, executions] = await Promise.all([
+  const [users, assignments, operations, signals, executions] = await Promise.all([
     apiFetch<AdminUser[]>("/api/v1/admin/users", token),
     apiFetch<AdminAssignment[]>("/api/v1/admin/assignments", token),
+    apiFetch<AdminOperation[]>("/api/v1/admin/operations", token),
     apiFetch<SignalView[]>("/api/v1/signals", token),
     apiFetch<ExecutionView[]>("/api/v1/executions", token),
   ]);
+  const managementReview = executions.filter(
+    (execution) => execution.state === "UNKNOWN" && execution.command_target !== "ENTRY",
+  );
 
   return (
     <>
@@ -46,6 +52,42 @@ export default async function AdminPage() {
       <div className="container">
         <h1>Super Admin dashboard</h1>
         <p style={{ color: "var(--muted)" }}>All users, assignments, signals and executions.</p>
+
+        <div className="panel">
+          <h2>Trading operations</h2>
+          <div style={{ overflowX: "auto" }}>
+            <table>
+              <thead><tr><th>user</th><th>wallet</th><th>subscription</th><th>execution account</th><th>worker</th><th>safety</th><th>risk</th></tr></thead>
+              <tbody>
+                {operations.map((op) => (
+                  <tr key={op.user_id}>
+                    <td>{op.display_name}<br /><code>{op.email}</code></td>
+                    <td>USD {op.wallet_balance}</td>
+                    <td>{op.subscription_status ?? "NOT CONFIGURED"}</td>
+                    <td>{op.account ? `${op.account.category} / ${op.account.transport} / ${op.account.status}` : "NOT CONFIGURED"}</td>
+                    <td>{op.account ? `${op.account.worker_status}${op.account.worker_name ? ` (${op.account.worker_name})` : ""}` : "NO WORKER"}</td>
+                    <td>{op.controls?.kill_switch ? "KILL SWITCH" : op.controls?.admin_suspended ? "SUSPENDED" : op.controls?.risk_blocked ? "RISK BLOCKED" : "CLEAR"}</td>
+                    <td>{op.risk ? `${op.risk.max_lot} lot, ${op.risk.max_open_trades} open` : "NOT CONFIGURED"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <AdminControls operations={operations} assignments={assignments} />
+
+        <div className="panel">
+          <h2>Management review queue</h2>
+          <p style={{ color: "var(--muted)" }}>
+            Unknown close, partial-close, or SL/TP changes are never resent automatically. Verify the broker position first, then resolve through the mapped position workflow.
+          </p>
+          {managementReview.length ? (
+            <div style={{ overflowX: "auto" }}>
+              <table><thead><tr><th>user</th><th>signal</th><th>command</th><th>reason</th><th>updated</th></tr></thead><tbody>{managementReview.map((execution) => <tr key={execution.id}><td>{execution.user_display_name}</td><td>{execution.signal_ref}</td><td>{execution.command_target}</td><td>{execution.last_error ?? "Broker response unknown"}</td><td>{execution.updated_at}</td></tr>)}</tbody></table>
+            </div>
+          ) : <div className="empty">No management actions require review.</div>}
+        </div>
 
         <div className="panel">
           <h2>Users</h2>

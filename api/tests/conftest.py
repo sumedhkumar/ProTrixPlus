@@ -93,6 +93,10 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROTRIX_DEV_IDENTITY_ENABLED", "true")
     monkeypatch.setenv("PROTRIX_APP_ENV", "ci")
     monkeypatch.setenv("PROTRIX_WEBHOOK_SHARED_SECRET", "dev-webhook-token-change-me")
+    # Direct TradingView delivery authenticates with its path token rather than
+    # the simulator's request header. Keep both test routes independently
+    # configured so an authorized malformed body reaches schema validation.
+    monkeypatch.setenv("PROTRIX_TRADINGVIEW_WEBHOOK_SECRET", "dev-webhook-token-change-me")
     get_settings.cache_clear()
     get_identity_provider.cache_clear()
     yield

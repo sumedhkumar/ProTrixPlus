@@ -18,14 +18,28 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 
-def list_signals(session: Session, *, limit: int = 100) -> list[dict[str, Any]]:
+def list_signals(
+    session: Session, *, viewer_subject: str, viewer_role: UserRole, limit: int = 100
+) -> list[dict[str, Any]]:
+    intent_count_stmt = select(OrderIntent.signal_id, func.count()).group_by(OrderIntent.signal_id)
+    signal_stmt = select(Signal).order_by(Signal.accepted_at.desc()).limit(limit)
+    if viewer_role is UserRole.USER:
+        intent_count_stmt = intent_count_stmt.where(OrderIntent.user_id == viewer_subject)
+        # A user only sees signals that were actually fanned out to one of
+        # their assignments. Signals are global ingress records, not public
+        # user activity.
+        signal_stmt = (
+            select(Signal)
+            .join(OrderIntent, OrderIntent.signal_id == Signal.id)
+            .where(OrderIntent.user_id == viewer_subject)
+            .distinct()
+            .order_by(Signal.accepted_at.desc())
+            .limit(limit)
+        )
     intent_counts: dict[uuid.UUID, int] = {
-        sig_id: count
-        for sig_id, count in session.execute(
-            select(OrderIntent.signal_id, func.count()).group_by(OrderIntent.signal_id)
-        ).all()
+        sig_id: count for sig_id, count in session.execute(intent_count_stmt).all()
     }
-    rows = session.scalars(select(Signal).order_by(Signal.accepted_at.desc()).limit(limit)).all()
+    rows = session.scalars(signal_stmt).all()
     return [
         {
             "id": str(s.id),
@@ -76,6 +90,7 @@ def list_executions(
                 "state": ex.state,
                 "ticket_id": ex.ticket_id,
                 "deal_id": ex.deal_id,
+                "last_error": ex.last_error,
                 "reconcile_count": ex.reconcile_count,
                 "latency_dispatch_ms": ex.latency_dispatch_ms,
                 "latency_ack_ms": ex.latency_ack_ms,

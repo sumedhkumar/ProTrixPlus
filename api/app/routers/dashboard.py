@@ -32,7 +32,7 @@ def signals(
     db: Session = Depends(get_db),
     claims: Claims = Depends(current_claims),
 ) -> list[dict[str, Any]]:
-    return read_models.list_signals(db)
+    return read_models.list_signals(db, viewer_subject=claims.subject, viewer_role=claims.role)
 
 
 @router.get("/executions")

@@ -27,7 +27,9 @@ from app.config import WorkerConfig
 from app.consumer import consume_once, ensure_group
 from app.db import engine, init_db, session_factory
 from app.health import start_health_server
+from app.heartbeat import record_heartbeat
 from app.logging_config import configure_logging
+from app.reconciliation import reconcile_pending_entries
 from app.relay import relay_once
 
 log = logging.getLogger("worker")
@@ -77,10 +79,43 @@ def _consumer_loop(cfg: WorkerConfig, redis: Redis, adapter: object, stop: threa
             stop.wait(1.0)
 
 
+def _operations_loop(cfg: WorkerConfig, adapter: object, stop: threading.Event) -> None:
+    """Keep account liveness current and reconcile only safe UNKNOWN entries."""
+    next_heartbeat = 0.0
+    next_reconciliation = 0.0
+    while not stop.is_set():
+        now = time.monotonic()
+        if now >= next_heartbeat:
+            try:
+                record_heartbeat(session_factory(), cfg)
+            except Exception:  # noqa: BLE001
+                log.exception("worker heartbeat update failed")
+            next_heartbeat = now + cfg.heartbeat_interval_seconds
+        if now >= next_reconciliation:
+            try:
+                reconcile_pending_entries(
+                    session_factory(),
+                    adapter,  # type: ignore[arg-type]
+                    active_user_email=cfg.mt5_user_email
+                    if cfg.execution_adapter == "mt5"
+                    else None,
+                )
+            except Exception:  # noqa: BLE001
+                log.exception("background reconciliation failed")
+            next_reconciliation = now + cfg.reconcile_interval_seconds
+        stop.wait(0.5)
+
+
 def main() -> int:
     cfg = WorkerConfig.from_env()
     configure_logging(level=cfg.log_level, service=cfg.service_name, secrets=[cfg.mt5_password])
-    log.info("worker starting name=%s adapter=%s", cfg.consumer_name, cfg.execution_adapter)
+    log.info(
+        "worker starting name=%s adapter=%s route_user=%s signal_group=%s",
+        cfg.consumer_name,
+        cfg.execution_adapter,
+        cfg.mt5_user_email if cfg.execution_adapter == "mt5" else "all-users",
+        cfg.consumer_group,
+    )
 
     init_db(cfg.database_url)
     redis: Redis = Redis.from_url(cfg.redis_url, decode_responses=True)
@@ -106,6 +141,11 @@ def main() -> int:
         except Exception:
             log.exception("startup catch-up failed (continuing)")
 
+    try:
+        record_heartbeat(session_factory(), cfg)
+    except Exception:  # noqa: BLE001
+        log.exception("initial worker heartbeat update failed")
+
     stop = threading.Event()
 
     def _graceful(signum: int, _frame: object) -> None:
@@ -118,6 +158,7 @@ def main() -> int:
     threads = [
         threading.Thread(target=_relay_loop, args=(cfg, redis, stop), name="relay"),
         threading.Thread(target=_consumer_loop, args=(cfg, redis, adapter, stop), name="consumer"),
+        threading.Thread(target=_operations_loop, args=(cfg, adapter, stop), name="operations"),
     ]
     for t in threads:
         t.start()

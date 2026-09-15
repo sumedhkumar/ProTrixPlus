@@ -63,6 +63,28 @@ a {
   margin-top: 20px;
 }
 
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.summary-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.summary-grid span,
+.summary-grid strong {
+  display: block;
+}
+
+.summary-grid span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 h1 {
   font-size: 20px;
   margin: 0 0 4px;
@@ -130,6 +152,80 @@ button.secondary {
   background: transparent;
   color: var(--fg);
   border: 1px solid var(--border);
+}
+
+button.danger {
+  background: var(--bad);
+  color: #fff;
+}
+
+input,
+select {
+  width: 100%;
+  font: inherit;
+  color: var(--fg);
+  background: #0f1420;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 8px;
+}
+
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 12px;
+}
+
+.control-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.control-card h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.control-row,
+.control-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.control-row > input,
+.control-row > select {
+  min-width: 0;
+}
+
+.control-actions {
+  flex-wrap: wrap;
+}
+
+.control-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.control-form label {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.control-form button {
+  justify-self: start;
+}
+
+details {
+  margin-top: 12px;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--accent);
 }
 
 code {

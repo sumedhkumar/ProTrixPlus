@@ -6,7 +6,7 @@ export function IdentityBar({ identity }: { identity: Identity }) {
   return (
     <div className="topbar">
       <strong>Protrixplus</strong>
-      <span className="badge">S0 skeleton</span>
+      <span className="badge">MVP</span>
       <span className="grow" />
       <span data-testid="identity">
         {identity.display_name} &middot; <code data-testid="identity-role">{identity.role}</code>

@@ -24,9 +24,17 @@ StreamEntry = tuple[str, dict[str, str]]
 log = logging.getLogger("worker.consumer")
 
 
-def ensure_group(redis: Redis, stream: str, group: str) -> None:
+def ensure_group(redis: Redis, stream: str, group: str, *, start_id: str = "$") -> None:
+    """Create a consumer group without replaying older stream entries.
+
+    Startup recovery is handled separately by the database catch-up sweep when
+    enabled. Starting a newly provisioned account route at ``$`` prevents a
+    second MT5 worker from replaying historical TradingView alerts and placing
+    unintended orders.
+    """
+
     try:
-        redis.xgroup_create(name=stream, groupname=group, id="0", mkstream=True)
+        redis.xgroup_create(name=stream, groupname=group, id=start_id, mkstream=True)
         log.info("created consumer group %s on %s", group, stream)
     except ResponseError as exc:
         if "BUSYGROUP" not in str(exc):

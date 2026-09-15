@@ -14,7 +14,17 @@ from decimal import Decimal
 
 import pytest
 from protrix_contracts.db import metadata
-from protrix_contracts.db.models import Signal, Strategy, StrategyAssignment, User
+from protrix_contracts.db.models import (
+    RentLedgerEntry,
+    RiskProfile,
+    Signal,
+    Strategy,
+    StrategyAssignment,
+    Subscription,
+    TradingAccount,
+    TradingControl,
+    User,
+)
 from protrix_contracts.db.session import build_engine, build_session_factory
 from redis import Redis
 from sqlalchemy import text
@@ -79,7 +89,9 @@ def clean_db(engine) -> None:
         conn.execute(
             text(
                 "TRUNCATE executions, order_intents, outbox, signals, "
-                "strategy_assignments, strategies, users, audit_events, "
+                "managed_positions, strategy_assignments, strategies, subscriptions, "
+                "trading_controls, risk_profiles, trading_accounts, rent_ledger_entries, "
+                "settlements, users, audit_events, "
                 "mock_broker_deals RESTART IDENTITY CASCADE"
             )
         )
@@ -123,11 +135,55 @@ def seeded(sf, clean_db) -> dict[str, uuid.UUID]:
                     status="ACTIVE",
                 )
             )
+            s.add(
+                TradingAccount(
+                    id=u.id,
+                    user_id=u.id,
+                    provider_name="test",
+                    category="DEMO",
+                    transport="MOCK",
+                    status="ACTIVE",
+                )
+            )
+            s.add(
+                Subscription(
+                    user_id=u.id,
+                    plan_code="TEST",
+                    status="ACTIVE",
+                    starts_at=datetime(2026, 1, 1, tzinfo=UTC),
+                    ends_at=datetime(2030, 1, 1, tzinfo=UTC),
+                )
+            )
+            s.add(TradingControl(user_id=u.id))
+            s.add(
+                RiskProfile(
+                    user_id=u.id,
+                    max_lot=Decimal("10.00"),
+                    max_open_trades=10,
+                    max_daily_loss=Decimal("1000.00"),
+                    allowed_symbols=["EURUSD", "XAUUSD"],
+                )
+            )
+            s.add(
+                RentLedgerEntry(
+                    user_id=u.id,
+                    entry_type="TOP_UP",
+                    amount=Decimal("100.00"),
+                    idempotency_key=f"test-credit:{slug}",
+                )
+            )
         s.commit()
     return ids
 
 
-def make_signal(sf, *, signal_id: str = "sig-w-1", action: str = "BUY") -> uuid.UUID:
+def make_signal(
+    sf,
+    *,
+    signal_id: str = "sig-w-1",
+    action: str = "BUY",
+    position_ref: str | None = None,
+    close_fraction: Decimal | None = None,
+) -> uuid.UUID:
     with sf() as s:
         sig = Signal(
             signal_id=signal_id,
@@ -139,6 +195,8 @@ def make_signal(sf, *, signal_id: str = "sig-w-1", action: str = "BUY") -> uuid.
             action=action,
             symbol="EURUSD",
             timeframe="15m",
+            position_ref=position_ref,
+            close_fraction=close_fraction,
             raw_payload={"signal_id": signal_id},
             event_time_utc=datetime.now(UTC),
             accepted_at=datetime.now(UTC),

@@ -31,6 +31,8 @@ def build_envelope(
     *,
     action: str,
     symbol: str,
+    position_ref: str | None = None,
+    close_fraction: str | None = None,
     stop_loss: str | None = None,
     take_profit: str | None = None,
 ) -> dict:
@@ -52,6 +54,10 @@ def build_envelope(
         env["stop_loss"] = stop_loss
     if take_profit is not None:
         env["take_profit"] = take_profit
+    if position_ref is not None:
+        env["position_ref"] = position_ref
+    if close_fraction is not None:
+        env["close_fraction"] = close_fraction
     return env
 
 
@@ -82,11 +88,38 @@ def main() -> int:
     )
     ap.add_argument("--count", type=int, default=1)
     ap.add_argument("--signal-id", default=None, help="fixed id (to test idempotency)")
-    ap.add_argument("--action", default="BUY", choices=["BUY", "SELL"])
+    ap.add_argument(
+        "--action",
+        default="BUY",
+        choices=[
+            "BUY",
+            "SELL",
+            "CLOSE",
+            "PARTIAL_CLOSE",
+            "MODIFY_SLTP",
+            "EMERGENCY_CLOSE",
+        ],
+    )
     ap.add_argument("--symbol", default="EURUSD")
+    ap.add_argument(
+        "--position-ref",
+        default=None,
+        help="server-mapped reference for management actions",
+    )
+    ap.add_argument(
+        "--close-fraction", default=None, help="required for PARTIAL_CLOSE, e.g. 0.50"
+    )
     ap.add_argument("--stop-loss", default=None)
     ap.add_argument("--take-profit", default=None)
     args = ap.parse_args()
+
+    if (
+        args.action in {"CLOSE", "PARTIAL_CLOSE", "MODIFY_SLTP", "EMERGENCY_CLOSE"}
+        and not args.position_ref
+    ):
+        ap.error("--position-ref is required for management actions")
+    if args.action == "PARTIAL_CLOSE" and args.close_fraction is None:
+        ap.error("--close-fraction is required for PARTIAL_CLOSE")
 
     rc = 0
     for i in range(args.count):
@@ -98,6 +131,8 @@ def main() -> int:
                 sid,
                 action=args.action,
                 symbol=args.symbol,
+                position_ref=args.position_ref,
+                close_fraction=args.close_fraction,
                 stop_loss=args.stop_loss,
                 take_profit=args.take_profit,
             ),

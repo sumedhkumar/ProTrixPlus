@@ -33,6 +33,9 @@ class OrderIntentDTO:
     stop_loss: Decimal | None = None
     take_profit: Decimal | None = None
     position_ref: str | None = None
+    # Resolved only from Protrixplus' managed-position table, never from a
+    # webhook payload. Management adapters must reject when it is absent.
+    broker_position_ref: str | None = None
     close_fraction: Decimal | None = None
 
 

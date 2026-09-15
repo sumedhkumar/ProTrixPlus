@@ -33,6 +33,14 @@ def test_invariant_constraints_exist_by_name() -> None:
     # one execution per intent
     assert "uq_executions_order_intent_id" in names
     assert "uq_executions_client_order_id" in names
+    # one execution account per user in the first-release scope
+    assert "uq_trading_accounts_user_id" in names
+    # rent wallet and settlement idempotency / one-charge invariants
+    assert "uq_settlements_user_cadence_period_start" in names
+    assert "uq_settlements_idempotency_key" in names
+    assert "uq_rent_ledger_entries_idempotency_key" in names
+    assert "uq_rent_ledger_entries_settlement_entry_type" in names
+    assert "ck_rent_ledger_entries_top_up_positive" in names
 
 
 def test_all_tables_compile_for_postgres() -> None:
@@ -44,6 +52,7 @@ def test_all_tables_compile_for_postgres() -> None:
 def test_expected_tables_present() -> None:
     assert {
         "users",
+        "trading_accounts",
         "strategies",
         "strategy_assignments",
         "signals",
@@ -52,6 +61,8 @@ def test_expected_tables_present() -> None:
         "executions",
         "audit_events",
         "mock_broker_deals",
+        "settlements",
+        "rent_ledger_entries",
     } <= set(metadata.tables)
 
 

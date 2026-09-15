@@ -27,7 +27,10 @@ param(
   [ValidateSet('bootstrap', 'setup', 'up', 'mt5-worker', 'tradingview-gateway', 'down', 'status', 'reset', 'teardown', 'help')]
   [string]$Command = 'help',
   [switch]$SkipInstall,
-  [switch]$Windows          # `up`: launch each service in its own visible window instead of hidden+logfile
+  [switch]$Windows,         # `up`: launch each service in its own visible window instead of hidden+logfile
+  [string]$ProfileFile = '', # `mt5-worker`: optional account-specific local env file
+  [ValidateRange(0, 65535)]
+  [int]$HealthPort = 0      # `mt5-worker`: override the profile health port for a concurrent route
 )
 
 $ErrorActionPreference = 'Stop'
@@ -85,9 +88,79 @@ function Load-DotEnv {
           ($value.StartsWith("'") -and $value.EndsWith("'"))) {
         $value = $value.Substring(1, $value.Length - 2)
       }
+      # Preserve per-process overrides. This is required when two native MT5
+      # workers use the same repo but different account profiles.
+      if ($null -eq [Environment]::GetEnvironmentVariable($name, 'Process')) {
+        Set-Item "Env:$name" $value
+      }
+    }
+  }
+}
+
+function Load-Mt5Profile {
+  if (-not $ProfileFile) { return }
+
+  $profilePath = $ProfileFile
+  if (-not [IO.Path]::IsPathRooted($profilePath)) {
+    $profilePath = Join-Path $Root $profilePath
+  }
+  if (-not (Test-Path -LiteralPath $profilePath)) {
+    Die "MT5 profile file not found: $profilePath"
+  }
+
+  $allowed = @{
+    PROTRIX_MT5_USER_EMAIL = $true
+    PROTRIX_MT5_PATH = $true
+    PROTRIX_MT5_LOGIN = $true
+    PROTRIX_MT5_PASSWORD = $true
+    PROTRIX_MT5_SERVER = $true
+    PROTRIX_MT5_SYMBOL = $true
+    PROTRIX_MT5_TRADING_ENABLED = $true
+    PROTRIX_MT5_MAGIC = $true
+    PROTRIX_MT5_DEVIATION_POINTS = $true
+    PROTRIX_MT5_TIMEOUT_SECONDS = $true
+    PROTRIX_WORKER_NAME = $true
+    PROTRIX_WORKER_HEALTH_PORT = $true
+    PROTRIX_SIGNAL_CONSUMER_GROUP = $true
+    PROTRIX_CATCH_UP_ON_START = $true
+  }
+
+  foreach ($line in Get-Content -LiteralPath $profilePath) {
+    if ($line -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$') {
+      $name = $Matches[1]
+      $value = $Matches[2].Trim()
+      if (-not $allowed.ContainsKey($name)) {
+        Die "unsupported setting in MT5 profile: $name"
+      }
+      if (($value.StartsWith('"') -and $value.EndsWith('"')) -or
+          ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+        $value = $value.Substring(1, $value.Length - 2)
+      }
+      # Profile values intentionally override infra/.env for this worker
+      # process only. Keep the profile file local and never commit it.
       Set-Item "Env:$name" $value
     }
   }
+}
+
+function Configured-Port([string]$Name, [int]$Default) {
+  $raw = [Environment]::GetEnvironmentVariable($Name, 'Process')
+  if (-not $raw) {
+    $envFile = Join-Path $Root 'infra\.env'
+    if (Test-Path -LiteralPath $envFile) {
+      foreach ($line in Get-Content -LiteralPath $envFile) {
+        if ($line -match "^\s*$([regex]::Escape($Name))\s*=\s*(\d+)\s*$") {
+          $raw = $Matches[1]
+          break
+        }
+      }
+    }
+  }
+  [int]$port = 0
+  if ([int]::TryParse([string]$raw, [ref]$port) -and $port -ge 1 -and $port -le 65535) {
+    return $port
+  }
+  return $Default
 }
 
 function Download-File([string]$Url, [string]$OutFile) {
@@ -116,11 +189,13 @@ function Find-Exe([string]$Base, [string]$Name) {
 # db/redis endpoints for the current mode
 function Db-Url {
   if (Portable) { return "postgresql+psycopg://protrix:protrix@127.0.0.1:$PG_PORT/protrix" }
-  return 'postgresql+psycopg://protrix:protrix@127.0.0.1:5432/protrix'
+  $port = Configured-Port 'PROTRIX_POSTGRES_PORT' 5432
+  return "postgresql+psycopg://protrix:protrix@127.0.0.1:$port/protrix"
 }
 function Redis-Url {
   if (Portable) { return "redis://127.0.0.1:$REDIS_PORT/0" }
-  return 'redis://127.0.0.1:6379/0'
+  $port = Configured-Port 'PROTRIX_REDIS_PORT' 6379
+  return "redis://127.0.0.1:$port/0"
 }
 function Apply-Env {
   Load-DotEnv
@@ -294,11 +369,12 @@ function Do-Setup {
     Ok 'web deps installed'
   }
 
+  Load-DotEnv
   if (Portable) { Start-PortablePg | Out-Null; Start-PortableRedis | Out-Null }
   Apply-Env
 
   Step 'Check infrastructure'
-  $dbPort = if (Portable) { $PG_PORT } else { 5432 }
+  $dbPort = if (Portable) { $PG_PORT } else { Configured-Port 'PROTRIX_POSTGRES_PORT' 5432 }
   if (-not (Test-Port $dbPort)) {
     if (Portable) { Die 'portable postgres not up' }
     Die 'no PostgreSQL on :5432 - run ./run-local.ps1 bootstrap for a portable one'
@@ -333,6 +409,7 @@ function Launch([string]$Title, [string]$WorkDir, [string]$Inner) {
 
 function Do-Up {
   Get-VenvPy | Out-Null
+  Load-DotEnv
   $redisPid = $null
   if (Portable) {
     Step 'Portable infrastructure'
@@ -341,9 +418,11 @@ function Do-Up {
   }
   else {
     Step 'Infrastructure (system)'
-    if (-not (Test-Port 5432)) { Die 'no PostgreSQL on :5432 (run ./run-local.ps1 bootstrap for a portable one)' }
-    if (-not (Test-Port 6379)) { Die 'no Redis on :6379 (run ./run-local.ps1 bootstrap for a portable one)' }
-    Ok 'postgres :5432 and redis :6379 reachable'
+    $dbPort = Configured-Port 'PROTRIX_POSTGRES_PORT' 5432
+    $redisPort = Configured-Port 'PROTRIX_REDIS_PORT' 6379
+    if (-not (Test-Port $dbPort)) { Die "no PostgreSQL on :$dbPort (run ./run-local.ps1 bootstrap for a portable one)" }
+    if (-not (Test-Port $redisPort)) { Die "no Redis on :$redisPort (run ./run-local.ps1 bootstrap for a portable one)" }
+    Ok "postgres :$dbPort and redis :$redisPort reachable"
   }
   Apply-Env
 
@@ -372,29 +451,74 @@ function Do-Up {
 
 function Do-Mt5Worker {
   Get-VenvPy | Out-Null
-  if (Portable) { Die 'MT5 worker requires the Docker PostgreSQL/Redis ports or system services on :5432/:6379' }
-  if (-not (Test-Port 5432)) { Die 'no PostgreSQL on :5432' }
-  if (-not (Test-Port 6379)) { Die 'no Redis on :6379' }
+  Load-DotEnv
+  Load-Mt5Profile
+  # Native MT5 must share the same host-mapped database and Redis as the
+  # Docker API/web stack. Prefer those configured ports even when a previous
+  # portable .localstack marker exists; otherwise fall back to a running
+  # portable pair.
+  $configuredDbPort = Configured-Port 'PROTRIX_POSTGRES_PORT' 5432
+  $configuredRedisPort = Configured-Port 'PROTRIX_REDIS_PORT' 6379
+  $dbPort = $null
+  $redisPort = $null
+  if ((Test-Port $configuredDbPort) -and (Test-Port $configuredRedisPort)) {
+    $dbPort = $configuredDbPort
+    $redisPort = $configuredRedisPort
+    Info "using Docker/system endpoints :$dbPort and :$redisPort"
+  }
+  elseif (Portable -and (Test-Port $PG_PORT) -and (Test-Port $REDIS_PORT)) {
+    $dbPort = $PG_PORT
+    $redisPort = $REDIS_PORT
+    Info "using portable endpoints :$dbPort and :$redisPort"
+  }
+  else {
+    Die "no reachable PostgreSQL/Redis pair (checked :$configuredDbPort/:$configuredRedisPort and portable :$PG_PORT/:$REDIS_PORT)"
+  }
 
   Apply-Env
-  $env:PROTRIX_DATABASE_URL = Db-Url
-  $env:PROTRIX_REDIS_URL = Redis-Url
+  $env:PROTRIX_DATABASE_URL = "postgresql+psycopg://protrix:protrix@127.0.0.1:$dbPort/protrix"
+  $env:PROTRIX_REDIS_URL = "redis://127.0.0.1:$redisPort/0"
   $env:PYTHONPATH = "$Root\contracts\python;$Root\worker"
+  if ($HealthPort -gt 0) { $env:PROTRIX_WORKER_HEALTH_PORT = "$HealthPort" }
   if ($env:PROTRIX_EXECUTION_ADAPTER -ne 'mt5') { Die 'infra/.env must set PROTRIX_EXECUTION_ADAPTER=mt5' }
   if ($env:PROTRIX_MT5_TRADING_ENABLED -ne 'true') { Die 'infra/.env must set PROTRIX_MT5_TRADING_ENABLED=true' }
+
+  $workerPort = [int]$env:PROTRIX_WORKER_HEALTH_PORT
+  if (Test-Port $workerPort) {
+    Die "MT5 worker health port :$workerPort is already in use; choose an unused -HealthPort (for example 8102)"
+  }
 
   Step 'Launching native MT5 demo worker'
   $mode = if ($Windows) { 'visible window' } else { 'hidden, logs in .run-local\logs' }
   Info $mode
-  $wkId = Launch 'protrix-mt5-worker' "$Root\worker" "& '$VenvPy' -m app.main"
-  Save-State @{
-    mode = 'native-mt5'; api = $null; worker = $wkId; web = $null; redis = $null
+  $workerTitle = 'protrix-mt5-worker'
+  if ($ProfileFile -and $env:PROTRIX_WORKER_NAME) {
+    $safeName = $env:PROTRIX_WORKER_NAME -replace '[^A-Za-z0-9_-]', '-'
+    $workerTitle = "protrix-mt5-$safeName"
   }
-  Info 'waiting for MT5 worker health...'
-  $w = Wait-Port 8100 45
+  $wkId = Launch $workerTitle "$Root\worker" "& '$VenvPy' -m app.main"
+  $previousState = Load-State
+  $nativeWorkers = @()
+  if ($previousState -and $previousState.workers) {
+    $nativeWorkers = @($previousState.workers | Where-Object {
+      $_.pid -and (Get-Process -Id ([int]$_.pid) -ErrorAction SilentlyContinue)
+    })
+  }
+  elseif ($previousState -and $previousState.mode -eq 'native-mt5' -and $previousState.worker) {
+    # Upgrade the earlier single-worker state shape without losing that worker.
+    $nativeWorkers = @([pscustomobject]@{ pid = [int]$previousState.worker; name = 'legacy'; user_email = 'unknown'; health_port = $null })
+  }
+  $nativeWorkers += [pscustomobject]@{
+    pid = $wkId; name = $env:PROTRIX_WORKER_NAME; user_email = $env:PROTRIX_MT5_USER_EMAIL; health_port = $workerPort
+  }
+  Info "waiting for MT5 worker health on :$workerPort..."
+  $w = Wait-Port $workerPort 45
   Write-Host ''
-  Ok ("worker http://localhost:8100/health   " + $(if ($w) { 'UP' } else { 'starting (check .run-local\logs)' }))
+  Ok ("worker http://localhost:$workerPort/health   " + $(if ($w) { 'UP' } else { 'starting (check .run-local\logs)' }))
   if (-not $w) { Die 'native MT5 worker did not start' }
+  Save-State @{
+    mode = 'native-mt5'; api = $null; worker = $null; workers = $nativeWorkers; web = $null; redis = $null
+  }
 }
 
 function Do-TradingViewGateway {
@@ -428,27 +552,34 @@ function Do-TradingViewGateway {
   if (-not $url) { Die "Cloudflare tunnel did not publish a URL (see $tunnelErr)" }
   if (-not $env:PROTRIX_TRADINGVIEW_WEBHOOK_SECRET) { Die 'infra/.env is missing PROTRIX_TRADINGVIEW_WEBHOOK_SECRET' }
 
+  $previousState = Load-State
+  $nativeWorkers = if ($previousState -and $previousState.workers) { @($previousState.workers) } else { @() }
   Save-State @{
     mode = 'native-mt5-tradingview'; api = $null; worker = $null; web = $null
-    redis = $null; gateway = $gatewayId; tunnel = $tunnel.Id
+    redis = $null; workers = $nativeWorkers; gateway = $gatewayId; tunnel = $tunnel.Id
   }
   Write-Host ''
   Ok "TradingView tunnel: $url"
-  Info "Webhook URL: $url/webhook/tradingview/$($env:PROTRIX_TRADINGVIEW_WEBHOOK_SECRET)"
+  Info 'Webhook path secret intentionally withheld; combine this host with the local secret in infra/.env.'
   Info 'stop gateway + tunnel: ./run-local.ps1 down'
 }
 
 function Do-Status {
-  $pgP = if (Portable) { $PG_PORT } else { 5432 }
-  $rdP = if (Portable) { $REDIS_PORT } else { 6379 }
+  Load-DotEnv
+  $configuredDbPort = Configured-Port 'PROTRIX_POSTGRES_PORT' 5432
+  $configuredRedisPort = Configured-Port 'PROTRIX_REDIS_PORT' 6379
+  $usingSystemEndpoints = (Test-Port $configuredDbPort) -and (Test-Port $configuredRedisPort)
+  $pgP = if ($usingSystemEndpoints) { $configuredDbPort } elseif (Portable) { $PG_PORT } else { $configuredDbPort }
+  $rdP = if ($usingSystemEndpoints) { $configuredRedisPort } elseif (Portable) { $REDIS_PORT } else { $configuredRedisPort }
   $rows = @(
     @{ n = 'postgres'; p = $pgP; u = $null },
     @{ n = 'redis   '; p = $rdP; u = $null },
     @{ n = 'api     '; p = 8000; u = 'http://localhost:8000/health' },
     @{ n = 'worker  '; p = 8100; u = 'http://localhost:8100/health' },
-    @{ n = 'web     '; p = 3000; u = 'http://localhost:3000/login' }
+    @{ n = 'web     '; p = 3000; u = 'http://localhost:3000/login' },
+    @{ n = 'tv-gateway'; p = 9000; u = $null }
   )
-  Write-Host ("mode: " + $(if (Portable) { 'portable (.localstack)' } else { 'system PostgreSQL/Redis' }))
+  Write-Host ("mode: " + $(if ($usingSystemEndpoints) { 'system/Docker PostgreSQL/Redis' } elseif (Portable) { 'portable (.localstack)' } else { 'system PostgreSQL/Redis (unreachable)' }))
   foreach ($r in $rows) {
     $open = Test-Port $r.p; $x = ''
     if ($open -and $r.u) {
@@ -460,12 +591,27 @@ function Do-Status {
     }
     Write-Host ("  {0}  port {1,-6} {2}  {3}" -f $r.n, $r.p, $(if ($open) { 'LISTEN' } else { '  --  ' }), $x)
   }
+  $state = Load-State
+  if ($state -and $state.workers) {
+    foreach ($nativeWorker in @($state.workers)) {
+      if (-not $nativeWorker.health_port) { continue }
+      $port = [int]$nativeWorker.health_port
+      $open = Test-Port $port
+      $email = if ($nativeWorker.user_email) { $nativeWorker.user_email } else { 'unknown' }
+      Write-Host ("  mt5 {0}  port {1,-6} {2}" -f $email, $port, $(if ($open) { 'LISTEN' } else { '  --  ' }))
+    }
+  }
 }
 
 function Do-Down {
   $s = Load-State
   if ($s) {
     foreach ($k in 'api', 'worker', 'web', 'gateway', 'tunnel') { if ($s.$k) { Info "stop $k (pid $($s.$k))"; Kill-Tree ([int]$s.$k) } }
+    if ($s.workers) {
+      foreach ($nativeWorker in @($s.workers)) {
+        if ($nativeWorker.pid) { Info "stop MT5 worker $($nativeWorker.user_email) (pid $($nativeWorker.pid))"; Kill-Tree ([int]$nativeWorker.pid) }
+      }
+    }
     if ($s.redis) { Kill-Tree ([int]$s.redis) }
   }
   Get-Process powershell -ErrorAction SilentlyContinue |
@@ -514,7 +660,8 @@ Protrixplus S0 - run WITHOUT Docker, without touching anything installed.
   ./run-local.ps1 bootstrap   download portable PostgreSQL 16 + Redis into .localstack (~300 MB)
   ./run-local.ps1 setup       venv + python deps + npm ci + alembic upgrade + seed
   ./run-local.ps1 up          start infra + api + worker + web   (add -Windows for visible windows)
-  ./run-local.ps1 mt5-worker  start the native Windows MT5 demo worker only
+  ./run-local.ps1 mt5-worker -HealthPort 8102  start the primary native route beside Docker
+  ./run-local.ps1 mt5-worker -ProfileFile infra\.env.mt5-bob.local  start another account route
   ./run-local.ps1 tradingview-gateway  expose only the webhook through HTTPS
   ./run-local.ps1 status      ports + /health
   ./run-local.ps1 down        stop everything this script started (keeps data)

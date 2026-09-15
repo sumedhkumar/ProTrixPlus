@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.routers import admin, dashboard, dev_identity, health, webhook
+from app.routers import admin, dashboard, dev_identity, health, mvp, webhook
 
 log = logging.getLogger("api")
 
@@ -38,7 +38,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Protrixplus API (S0 skeleton)",
+        title="Protrixplus API",
         version=__version__,
         lifespan=lifespan,
     )
@@ -53,6 +53,8 @@ def create_app() -> FastAPI:
     app.include_router(webhook.router)
     app.include_router(dashboard.router)
     app.include_router(admin.router)
+    app.include_router(mvp.router)
+    app.include_router(mvp.admin_router)
     return app
 
 

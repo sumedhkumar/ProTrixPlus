@@ -7,13 +7,35 @@ Credentials are read from environment variables (or the ignored
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
 
 
-def _load_local_env() -> None:
-    env_file = Path(__file__).resolve().parents[1] / ".env"
+_PROFILE_KEYS = frozenset(
+    {
+        "PROTRIX_MT5_USER_EMAIL",
+        "PROTRIX_MT5_PATH",
+        "PROTRIX_MT5_LOGIN",
+        "PROTRIX_MT5_PASSWORD",
+        "PROTRIX_MT5_SERVER",
+        "PROTRIX_MT5_SYMBOL",
+        "PROTRIX_MT5_TRADING_ENABLED",
+        "PROTRIX_MT5_MAGIC",
+        "PROTRIX_MT5_DEVIATION_POINTS",
+        "PROTRIX_MT5_TIMEOUT_SECONDS",
+        # Accepted so this read-only preflight can consume the exact same
+        # per-account profile as ``run-local.ps1 mt5-worker``.
+        "PROTRIX_WORKER_NAME",
+        "PROTRIX_WORKER_HEALTH_PORT",
+        "PROTRIX_SIGNAL_CONSUMER_GROUP",
+        "PROTRIX_CATCH_UP_ON_START",
+    }
+)
+
+
+def _load_env_file(env_file: Path, *, override: bool, allowed: frozenset[str] | None = None) -> None:
     if not env_file.is_file():
         return
     for raw_line in env_file.read_text(encoding="utf-8").splitlines():
@@ -21,11 +43,31 @@ def _load_local_env() -> None:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+        key = key.strip()
+        if allowed is not None and key not in allowed:
+            raise ValueError(f"unsupported setting in MT5 profile: {key}")
+        if override:
+            os.environ[key] = value.strip().strip("'\"")
+        else:
+            os.environ.setdefault(key, value.strip().strip("'\""))
 
 
 def main() -> int:
-    _load_local_env()
+    parser = argparse.ArgumentParser(description="Read-only local MT5 readiness check")
+    parser.add_argument(
+        "--profile-file",
+        type=Path,
+        help="ignored account-specific local profile; overrides only MT5 settings",
+    )
+    args = parser.parse_args()
+
+    _load_env_file(Path(__file__).resolve().parents[1] / ".env", override=False)
+    if args.profile_file is not None:
+        try:
+            _load_env_file(args.profile_file, override=True, allowed=_PROFILE_KEYS)
+        except ValueError as exc:
+            print(f"ERROR: {exc}")
+            return 1
     try:
         import MetaTrader5 as mt5
     except ImportError:

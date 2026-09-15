@@ -9,6 +9,7 @@ import pytest
 from protrix_contracts.db.models import (
     AuditEvent,
     Execution,
+    ManagedPosition,
     MockBrokerDeal,
     OrderIntent,
     Signal,
@@ -30,6 +31,7 @@ def _make_intent(session, ids: dict, user: str) -> OrderIntent:
         strategy_id=ids["strategy"],
         signal_id=sig.id,
         command_target="ENTRY",
+        execution_key="entry",
         action="BUY",
         symbol="EURUSD",
         computed_lot=Decimal("1.00"),
@@ -62,6 +64,12 @@ def test_happy_path_to_filled(sf, redis_client, ids) -> None:
         execution = session.get(Execution, exec_id)
         assert execution.state == ExecutionState.FILLED.value
         assert execution.ticket_id and execution.deal_id
+        managed = session.scalar(
+            select(ManagedPosition).where(ManagedPosition.entry_execution_id == exec_id)
+        )
+        assert managed is not None
+        assert managed.status == "OPEN"
+        assert managed.remaining_volume == Decimal("1.00")
         assert execution.latency_dispatch_ms is not None
         assert execution.latency_fill_ms is not None
         transitions = session.scalars(

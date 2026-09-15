@@ -5,9 +5,9 @@ official ``MetaTrader5`` package communicates with a Windows terminal through
 local IPC, so the worker using this adapter must run natively on Windows.
 
 The adapter starts in read-only guard mode unless
-``PROTRIX_MT5_TRADING_ENABLED=true`` is explicitly set. Entry orders are
-supported first; management actions remain rejected until their per-user
-position mapping is implemented.
+``PROTRIX_MT5_TRADING_ENABLED=true`` is explicitly set. Management commands
+are accepted only for a server-recorded, user-scoped managed position; a ticket
+from a webhook is never used directly.
 """
 
 from __future__ import annotations
@@ -18,8 +18,15 @@ import logging
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
-from protrix_contracts.db.models import Execution
+from protrix_contracts.db.models import (
+    Execution,
+    ManagedPosition,
+    ManagedPositionStatus,
+    OrderIntent,
+    User,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -54,6 +61,15 @@ class MetaTrader5ExecutionAdapter:
                 "PROTRIX_MT5_PASSWORD, and PROTRIX_MT5_SERVER"
             )
 
+        with self._sf() as session:
+            routed_user = session.scalar(select(User).where(User.email == config.mt5_user_email))
+        if routed_user is None:
+            raise RuntimeError(f"no ProTrix user exists for MT5 route {config.mt5_user_email!r}")
+        if not routed_user.is_active:
+            raise RuntimeError(f"ProTrix user for MT5 route {config.mt5_user_email!r} is inactive")
+        self._routed_user_id: UUID = routed_user.id
+        self._account_ref = f"acct-{routed_user.id}"
+
         connected = self._mt5.initialize(
             path=config.mt5_path,
             login=config.mt5_login,
@@ -71,6 +87,19 @@ class MetaTrader5ExecutionAdapter:
             error = self._mt5.last_error()
             self._mt5.shutdown()
             raise RuntimeError(f"MT5 account_info failed (code={error[0]!r})")
+
+        actual_login = getattr(account, "login", None)
+        actual_server = str(getattr(account, "server", "") or "")
+        if actual_login is not None and int(actual_login) != config.mt5_login:
+            self._mt5.shutdown()
+            raise RuntimeError(
+                "MT5 login mismatch: terminal account does not match PROTRIX_MT5_LOGIN"
+            )
+        if actual_server and actual_server != config.mt5_server:
+            self._mt5.shutdown()
+            raise RuntimeError(
+                "MT5 server mismatch: terminal account does not match PROTRIX_MT5_SERVER"
+            )
 
         terminal = self._mt5.terminal_info()
         if terminal is None:
@@ -123,11 +152,76 @@ class MetaTrader5ExecutionAdapter:
             raise ValueError(f"volume does not fit broker step for {symbol_info.name}")
         return normalized
 
+    def _send(
+        self, request: dict[str, Any], order: OrderIntentDTO, *, ticket_id: str = ""
+    ) -> PlaceResult:
+        try:
+            result = self._mt5.order_send(request)
+        except Exception as exc:  # noqa: BLE001
+            raise ExecutionTimeout("MT5 order response was unavailable") from exc
+        if result is None:
+            raise ExecutionTimeout("MT5 order response was unavailable")
+
+        retcode = int(getattr(result, "retcode", 0))
+        raw = {
+            "retcode": str(retcode),
+            "comment": str(getattr(result, "comment", "")),
+            "request_id": str(getattr(result, "request_id", "")),
+            "account_ref": order.account_ref,
+        }
+        accepted_codes = {
+            int(getattr(self._mt5, "TRADE_RETCODE_DONE", 10009)),
+            int(getattr(self._mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010)),
+            int(getattr(self._mt5, "TRADE_RETCODE_PLACED", 10008)),
+        }
+        if retcode not in accepted_codes:
+            return PlaceResult(ticket_id="", deal_id="", status="REJECTED", raw=raw)
+        return PlaceResult(
+            ticket_id=ticket_id or str(getattr(result, "order", 0) or ""),
+            deal_id=str(getattr(result, "deal", 0) or ""),
+            status="ACKNOWLEDGED",
+            raw=raw,
+        )
+
+    def _managed_live_position(self, order: OrderIntentDTO) -> tuple[Any, Execution] | None:
+        """Resolve an open terminal position belonging to this worker route."""
+        if not order.broker_position_ref:
+            return None
+        with self._sf() as session:
+            row = session.execute(
+                select(ManagedPosition, Execution)
+                .join(Execution, ManagedPosition.entry_execution_id == Execution.id)
+                .where(
+                    ManagedPosition.user_id == self._routed_user_id,
+                    ManagedPosition.broker_position_ref == order.broker_position_ref,
+                    ManagedPosition.status == ManagedPositionStatus.OPEN.value,
+                )
+            ).first()
+        if row is None:
+            return None
+        try:
+            ticket = int(order.broker_position_ref)
+        except ValueError:
+            return None
+        positions = self._mt5.positions_get(ticket=ticket)
+        if not positions:
+            return None
+        position = positions[0]
+        entry_execution = row[1]
+        if str(getattr(position, "comment", "")) != _comment(entry_execution.client_order_id):
+            log.error("MT5 position comment did not match managed entry ticket=%s", ticket)
+            return None
+        return position, entry_execution
+
     def place(self, order: OrderIntentDTO) -> PlaceResult:
+        if order.account_ref != self._account_ref:
+            return self._rejected("account_route_mismatch", order)
         if not self._cfg.mt5_trading_enabled:
             return self._rejected("trading_disabled", order)
-        if order.command_target != "ENTRY" or order.action.upper() not in {"BUY", "SELL"}:
-            return self._rejected("management_action_not_yet_supported", order)
+        if order.command_target != "ENTRY":
+            return self._place_management(order)
+        if order.action.upper() not in {"BUY", "SELL"}:
+            return self._rejected("unsupported_entry_action", order)
 
         symbol_info = self._mt5.symbol_info(order.symbol)
         if symbol_info is None:
@@ -164,36 +258,94 @@ class MetaTrader5ExecutionAdapter:
         if order.take_profit is not None:
             request["tp"] = float(order.take_profit)
 
+        placed = self._send(request, order)
+        if placed.status != "ACKNOWLEDGED":
+            return placed
+        # For management we need the *position* ticket, which can differ from
+        # the order/deal ticket returned by MT5 on netting accounts.
+        positions = self._mt5.positions_get(symbol=order.symbol) or ()
+        for position in positions:
+            if str(getattr(position, "comment", "")) == _comment(order.client_order_id):
+                return PlaceResult(
+                    ticket_id=str(getattr(position, "ticket", "")) or placed.ticket_id,
+                    deal_id=placed.deal_id,
+                    status=placed.status,
+                    raw=placed.raw,
+                )
+        return placed
+
+    def _place_management(self, order: OrderIntentDTO) -> PlaceResult:
+        action = order.action.upper()
+        if action not in {"CLOSE", "PARTIAL_CLOSE", "MODIFY_SLTP", "EMERGENCY_CLOSE"}:
+            return self._rejected("unsupported_management_action", order)
+        resolved = self._managed_live_position(order)
+        if resolved is None:
+            return self._rejected("managed_position_not_open_or_not_owned", order)
+        position, _entry_execution = resolved
+        if str(getattr(position, "symbol", "")) != order.symbol:
+            return self._rejected("managed_position_symbol_mismatch", order)
+        symbol_info = self._mt5.symbol_info(order.symbol)
+        tick = self._mt5.symbol_info_tick(order.symbol)
+        if symbol_info is None or tick is None:
+            return self._rejected("symbol_not_ready", order)
+        ticket = str(getattr(position, "ticket", ""))
+
+        if action == "MODIFY_SLTP":
+            if order.stop_loss is None and order.take_profit is None:
+                return self._rejected("modify_requires_stop_loss_or_take_profit", order)
+            request: dict[str, Any] = {
+                "action": self._mt5.TRADE_ACTION_SLTP,
+                "position": int(ticket),
+                "symbol": order.symbol,
+                "sl": float(
+                    order.stop_loss if order.stop_loss is not None else getattr(position, "sl", 0)
+                ),
+                "tp": float(
+                    order.take_profit
+                    if order.take_profit is not None
+                    else getattr(position, "tp", 0)
+                ),
+            }
+            return self._send(request, order, ticket_id=ticket)
+
+        position_volume = _decimal(getattr(position, "volume", "0"))
+        requested = position_volume
+        if action == "PARTIAL_CLOSE":
+            if order.close_fraction is None or not Decimal("0") < order.close_fraction < Decimal(
+                "1"
+            ):
+                return self._rejected("partial_close_requires_fraction_between_zero_and_one", order)
+            requested = position_volume * order.close_fraction
         try:
-            result = self._mt5.order_send(request)
-        except Exception as exc:  # noqa: BLE001
-            raise ExecutionTimeout("MT5 order response was unavailable") from exc
-        if result is None:
-            raise ExecutionTimeout("MT5 order response was unavailable")
-
-        retcode = int(getattr(result, "retcode", 0))
-        raw = {
-            "retcode": str(retcode),
-            "comment": str(getattr(result, "comment", "")),
-            "request_id": str(getattr(result, "request_id", "")),
-            "account_ref": order.account_ref,
+            volume = self._volume(symbol_info, requested)
+        except ValueError as exc:
+            return self._rejected(str(exc), order)
+        buy_type = int(getattr(self._mt5, "POSITION_TYPE_BUY", 0))
+        is_buy = int(getattr(position, "type", buy_type)) == buy_type
+        request = {
+            "action": self._mt5.TRADE_ACTION_DEAL,
+            "position": int(ticket),
+            "symbol": order.symbol,
+            "volume": float(volume),
+            "type": self._mt5.ORDER_TYPE_SELL if is_buy else self._mt5.ORDER_TYPE_BUY,
+            "price": float(_decimal(tick.bid if is_buy else tick.ask)),
+            "deviation": self._cfg.mt5_deviation_points,
+            "magic": self._cfg.mt5_magic,
+            "comment": _comment(order.client_order_id),
+            "type_time": self._mt5.ORDER_TIME_GTC,
+            "type_filling": self._mt5.ORDER_FILLING_IOC,
         }
-        accepted_codes = {
-            int(getattr(self._mt5, "TRADE_RETCODE_DONE", 10009)),
-            int(getattr(self._mt5, "TRADE_RETCODE_DONE_PARTIAL", 10010)),
-            int(getattr(self._mt5, "TRADE_RETCODE_PLACED", 10008)),
-        }
-        if retcode not in accepted_codes:
-            return PlaceResult(ticket_id="", deal_id="", status="REJECTED", raw=raw)
+        return self._send(request, order, ticket_id=ticket)
 
-        return PlaceResult(
-            ticket_id=str(getattr(result, "order", 0) or ""),
-            deal_id=str(getattr(result, "deal", 0) or ""),
-            status="ACKNOWLEDGED",
-            raw=raw,
-        )
+    def sync_positions(self, account_ref: str) -> list[BrokerPosition]:
+        if account_ref != self._account_ref:
+            log.warning(
+                "ignoring reconciliation for account_ref=%s on route=%s",
+                account_ref,
+                self._account_ref,
+            )
+            return []
 
-    def sync_positions(self, account_ref: str) -> list[BrokerPosition]:  # noqa: ARG002
         positions = self._mt5.positions_get()
         if positions is None:
             error = self._mt5.last_error()
@@ -202,7 +354,11 @@ class MetaTrader5ExecutionAdapter:
         with self._sf() as session:
             known = {
                 _comment(row.client_order_id): row.client_order_id
-                for row in session.scalars(select(Execution)).all()
+                for row in session.scalars(
+                    select(Execution)
+                    .join(OrderIntent, Execution.order_intent_id == OrderIntent.id)
+                    .where(OrderIntent.user_id == self._routed_user_id)
+                ).all()
             }
 
         buy_type = int(getattr(self._mt5, "POSITION_TYPE_BUY", 0))

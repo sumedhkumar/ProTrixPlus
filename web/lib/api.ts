@@ -65,6 +65,7 @@ export interface ExecutionView {
   state: string;
   ticket_id: string | null;
   deal_id: string | null;
+  last_error: string | null;
   reconcile_count: number;
   latency_dispatch_ms: number | null;
   latency_ack_ms: number | null;
@@ -91,4 +92,96 @@ export interface AdminAssignment {
   multiplier_min: string;
   multiplier_max: string;
   status: string;
+}
+
+export interface PortfolioAssignment {
+  id: string;
+  strategy_key: string;
+  strategy_version: string;
+  master_lot: string;
+  multiplier: string;
+  multiplier_min: string;
+  multiplier_max: string;
+  status: string;
+}
+
+export interface Portfolio {
+  user: { id: string; display_name: string; email: string };
+  wallet: { currency: string; balance: string };
+  account: {
+    provider_name: string;
+    server_identifier: string | null;
+    category: string;
+    transport: string;
+    status: string;
+    external_account_ref: string | null;
+    credential_key_ref: string | null;
+    worker_adapter: string | null;
+    worker_name: string | null;
+    worker_heartbeat_at: string | null;
+    worker_status: "HEALTHY" | "STALE" | "NO_WORKER";
+  } | null;
+  subscription: {
+    plan_code: string;
+    status: string;
+    starts_at: string;
+    ends_at: string;
+  } | null;
+  controls: {
+    admin_suspended: boolean;
+    risk_blocked: boolean;
+    kill_switch: boolean;
+  } | null;
+  risk_profile: {
+    max_lot: string;
+    max_open_trades: number;
+    max_daily_loss: string;
+    allowed_symbols: string[];
+  } | null;
+  assignments: PortfolioAssignment[];
+  managed_positions: Array<{
+    id: string;
+    source_position_ref: string;
+    broker_position_ref: string;
+    symbol: string;
+    side: string;
+    initial_volume: string;
+    remaining_volume: string;
+    status: string;
+    updated_at: string;
+  }>;
+}
+
+export interface AdminOperation {
+  user_id: string;
+  email: string;
+  display_name: string;
+  wallet_balance: string;
+  account: {
+    provider_name: string;
+    server_identifier: string | null;
+    category: string;
+    transport: string;
+    status: string;
+    external_account_ref: string | null;
+    credential_key_ref: string | null;
+    worker_adapter: string | null;
+    worker_name: string | null;
+    worker_heartbeat_at: string | null;
+    worker_status: "HEALTHY" | "STALE" | "NO_WORKER";
+  } | null;
+  subscription_status: string | null;
+  subscription: {
+    plan_code: string;
+    status: "ACTIVE" | "EXPIRED" | "DISABLED";
+    starts_at: string;
+    ends_at: string;
+  } | null;
+  controls: { admin_suspended: boolean; risk_blocked: boolean; kill_switch: boolean } | null;
+  risk: {
+    max_lot: string;
+    max_open_trades: number;
+    max_daily_loss: string;
+    allowed_symbols: string[];
+  } | null;
 }
