@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.routers import admin, dashboard, dev_identity, health, webhook
+from app.routers import admin, auth, dashboard, dev_identity, health, marketplace, webhook
 
 log = logging.getLogger("api")
 
@@ -50,9 +50,11 @@ def create_app() -> FastAPI:
     )
     app.include_router(health.router)
     app.include_router(dev_identity.router)
+    app.include_router(auth.router)
     app.include_router(webhook.router)
     app.include_router(dashboard.router)
     app.include_router(admin.router)
+    app.include_router(marketplace.router)
     return app
 
 

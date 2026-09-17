@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from protrix_contracts.db import metadata
 from protrix_contracts.db.session import build_engine
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -60,11 +61,35 @@ def _db_available(url: str) -> bool:
         return False
 
 
+# infra/docker-compose.yml maps the local dev/demo stack's postgres to this
+# fixed host port (infra/.env PROTRIX_POSTGRES_PORT) - see infra/README.md.
+# A real incident: running this suite with PROTRIX_DATABASE_URL pointed at
+# that port ran drop_all() against it and destroyed every real account,
+# strategy, and execution twice. This fixture must never be able to do that
+# again without an explicit, conscious override.
+_DEV_STACK_PORT = "55432"
+
+
+def _guard_against_dev_database(url: str) -> None:
+    port = str(make_url(url).port)
+    if port == _DEV_STACK_PORT and not os.environ.get("PROTRIX_ALLOW_TEST_DB_WIPE"):
+        pytest.exit(
+            f"\n[conftest] Refusing to run db tests against {url}\n"
+            f"Port {_DEV_STACK_PORT} is the local ProTrixPlus dev/demo stack "
+            "(infra/.env PROTRIX_POSTGRES_PORT) - this fixture drops every "
+            "table. Point PROTRIX_DATABASE_URL at a disposable database "
+            "instead, or set PROTRIX_ALLOW_TEST_DB_WIPE=1 if you are certain "
+            f"port {_DEV_STACK_PORT} is disposable this time.",
+            returncode=1,
+        )
+
+
 @pytest.fixture(scope="session")
 def db_engine():
     url = _database_url()
     if not _db_available(url):
         pytest.skip(f"no PostgreSQL reachable at {url}")
+    _guard_against_dev_database(url)
     engine = build_engine(url)
     metadata.drop_all(engine)
     metadata.create_all(engine)
@@ -123,3 +148,18 @@ def client_no_db(identity: MockIdentityProvider) -> Iterator[TestClient]:
 @pytest.fixture
 def settings() -> Settings:
     return get_settings()
+
+
+@pytest.fixture
+def client(db: Session, identity: MockIdentityProvider) -> Iterator[TestClient]:
+    """App wired to a real (transactional, rolled-back) PostgreSQL session.
+
+    For routes that actually read/write - auth signup/login, ingest via HTTP,
+    etc. - as opposed to ``client_no_db``'s stubbed session.
+    """
+    app = create_app()
+    app.dependency_overrides[get_identity_provider] = lambda: identity
+    app.dependency_overrides[get_db] = lambda: db
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()

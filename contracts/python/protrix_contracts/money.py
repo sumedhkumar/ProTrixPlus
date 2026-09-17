@@ -52,3 +52,22 @@ def clamp(value: Decimal, low: Decimal, high: Decimal) -> Decimal:
     if low > high:  # pragma: no cover - defensive
         raise ValueError("clamp bounds inverted")
     return max(low, min(high, value))
+
+
+def compute_lot(
+    *, master_lot: Decimal, multiplier: Decimal, multiplier_min: Decimal, multiplier_max: Decimal
+) -> Decimal:
+    """``effective = clamp(multiplier, min, max); lot = floor(master_lot * effective)``.
+
+    Single source of truth for lot sizing, shared by the worker (actual
+    execution) and the api (client-facing "effective lot" preview before
+    saving a multiplier choice) so the preview can never drift from what
+    actually gets traded.
+    """
+    effective = clamp(multiplier, multiplier_min, multiplier_max)
+    raw = master_lot * effective
+    lot = quantize_lot(raw)
+    if lot < LOT_QUANT:
+        # Never emit a zero/sub-minimum lot; floor at one step.
+        lot = LOT_QUANT
+    return lot

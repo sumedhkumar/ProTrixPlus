@@ -4,14 +4,16 @@
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file infra/.env
 PY := python
 
-.PHONY: help env up down logs ps reset health simulate \
+.PHONY: help env up down logs ps reset backup restore health simulate \
         install lint typecheck test test-unit test-integration e2e build ci-local
 
 help:
 	@echo "make env         - copy infra/.env.example -> infra/.env"
 	@echo "make up           - build + start the whole stack (detached)"
 	@echo "make down          - stop the stack"
-	@echo "make reset         - stop + wipe volumes"
+	@echo "make backup        - pg_dump the live protrix db to infra/backups/"
+	@echo "make restore       - restore the most recent infra/backups/ dump"
+	@echo "make reset         - DESTRUCTIVE: auto-backs up, then wipes ALL volumes (asks to confirm)"
 	@echo "make health        - curl every /health"
 	@echo "make simulate      - post one mock signal"
 	@echo "make install       - install all python + node dev deps locally"
@@ -32,7 +34,20 @@ up: env
 down:
 	$(COMPOSE) down
 
+backup:
+	infra/scripts/backup-db.sh
+
+restore:
+	infra/scripts/restore-db.sh
+
+# Wipes the postgres volume - every account and signal in it is gone for good
+# afterwards. Auto-backs up first (see `make backup`/`make restore`) and
+# still requires typing "yes" - this is what caused real demo-account data
+# loss before, so it must never run silently or by accident.
 reset:
+	@infra/scripts/backup-db.sh || echo "[reset] backup skipped (stack was already down)"
+	@echo "This wipes ALL local ProTrixPlus data (postgres volume), including every account."
+	@read -p "Type 'yes' to continue: " ans; [ "$$ans" = "yes" ] || (echo "aborted"; exit 1)
 	$(COMPOSE) down -v
 
 logs:

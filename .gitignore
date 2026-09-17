@@ -24,6 +24,9 @@ web/test-results/
 infra/.env
 *.local
 
+# Local db backups (see infra/scripts/backup-db.sh) - may contain real data
+infra/backups/*.dump
+
 # Editors / OS
 .idea/
 .vscode/

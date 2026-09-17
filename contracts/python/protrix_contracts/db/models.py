@@ -54,6 +54,32 @@ class AssignmentStatus(str, enum.Enum):
     PAUSED = "PAUSED"
 
 
+class Mt5ConnectionStatus(str, enum.Enum):
+    """PRD 4.1 step 3: Connected / Disconnected / Error, plus NOT_CONFIGURED
+    for before a client has submitted connection details, and PENDING for
+    submitted-but-never-actually-checked (true today: no real MetaApi
+    credentials are wired in yet, see docs/FULL-BUILD-PLAN.md Phase 3)."""
+
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    PENDING = "PENDING"
+    CONNECTED = "CONNECTED"
+    DISCONNECTED = "DISCONNECTED"
+    ERROR = "ERROR"
+
+
+class PaymentStatus(str, enum.Enum):
+    """Entitlement gate, independent of ``AssignmentStatus``.
+
+    ``AssignmentStatus`` is the admin's coarse per-client enable/disable
+    switch. ``PaymentStatus`` + ``expires_at`` together are the entitlement
+    check: a client can be ACTIVE (enabled) but still ineligible because
+    payment was REVOKED or the entitlement has expired.
+    """
+
+    GRANTED = "GRANTED"
+    REVOKED = "REVOKED"
+
+
 class OutboxStatus(str, enum.Enum):
     PENDING = "PENDING"
     PUBLISHED = "PUBLISHED"
@@ -91,6 +117,9 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default=UserRole.USER.value)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    # NULL for seeded/dev-only users (they can only ever use /dev/login).
+    # Never a plaintext password - PBKDF2-HMAC-SHA256, salted, see app/auth.py.
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = _created_at()
 
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="user")
@@ -98,13 +127,31 @@ class User(Base):
 
 class Strategy(Base):
     __tablename__ = "strategies"
-    __table_args__ = (UniqueConstraint("strategy_key", "strategy_version"),)
+    __table_args__ = (
+        UniqueConstraint("strategy_key", "strategy_version"),
+        CheckConstraint("price IS NULL OR price >= 0", name="price_non_negative"),
+        CheckConstraint(
+            "profit_share_percent IS NULL "
+            "OR (profit_share_percent >= 0 AND profit_share_percent <= 100)",
+            name="profit_share_percent_in_range",
+        ),
+        CheckConstraint("base_lot IS NULL OR base_lot > 0", name="base_lot_positive"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     strategy_key: Mapped[str] = mapped_column(String(64), nullable=False)
     strategy_version: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+
+    # Catalog fields (PRD 5.3: admin-managed strategy catalog).
+    description: Mapped[str | None] = mapped_column(Text)
+    symbol: Mapped[str | None] = mapped_column(String(32))
+    timeframe: Mapped[str | None] = mapped_column(String(8))
+    price: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    profit_share_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    base_lot: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+
     created_at: Mapped[datetime] = _created_at()
 
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="strategy")
@@ -122,6 +169,7 @@ class StrategyAssignment(Base):
             name="multiplier_within_bounds",
         ),
         CheckConstraint(_in("status", AssignmentStatus), name="status_allowed"),
+        CheckConstraint(_in("payment_status", PaymentStatus), name="payment_status_allowed"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -136,6 +184,17 @@ class StrategyAssignment(Base):
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=AssignmentStatus.ACTIVE.value
     )
+
+    # Entitlement (PRD 5.3/5.8). Distinct from `status` above: an assignment
+    # can be admin-ACTIVE but still ineligible if not GRANTED or expired.
+    # MVP payment workflow is admin-granted (no payment gateway) - see
+    # docs/FULL-BUILD-PLAN.md decision #4.
+    purchased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payment_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PaymentStatus.GRANTED.value
+    )
+
     created_at: Mapped[datetime] = _created_at()
 
     user: Mapped[User] = relationship(back_populates="assignments")
@@ -260,6 +319,12 @@ class Execution(Base):
     reconcile_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
 
+    # P&L attribution (PRD 5.6). Populated once the position is closed;
+    # NULL while the position is still open.
+    entry_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
+    exit_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
+    realized_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+
     # Latency segment timestamps (UTC).
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     intent_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -295,6 +360,33 @@ class AuditEvent(Base):
     entity_id: Mapped[str | None] = mapped_column(String(64))
     actor: Mapped[str | None] = mapped_column(String(120))
     data: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class Mt5Connection(Base):
+    """One connected MT5 account per client for MVP (PRD 3.1, 4.1, 5.2).
+
+    Deliberately never stores an MT5 password/investor password anywhere -
+    that must go through the real CredentialVault (api/app/vault/, still a
+    stub as of this table's introduction) once it exists, never a plain
+    column here. ``login`` (the MT5 account number) is not itself a secret.
+    """
+
+    __tablename__ = "mt5_connections"
+    __table_args__ = (
+        UniqueConstraint("user_id", name="uq_mt5_connections_user_id"),
+        CheckConstraint(_in("status", Mt5ConnectionStatus), name="status_allowed"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    broker_server: Mapped[str] = mapped_column(String(120), nullable=False)
+    login: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=Mt5ConnectionStatus.NOT_CONFIGURED.value
+    )
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created_at()
 
 

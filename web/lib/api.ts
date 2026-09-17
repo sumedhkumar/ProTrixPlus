@@ -59,6 +59,7 @@ export interface ExecutionView {
   user_display_name: string;
   strategy_key: string;
   symbol: string;
+  action: string;
   command_target: string;
   computed_lot: string;
   adapter: string;
@@ -69,6 +70,9 @@ export interface ExecutionView {
   latency_dispatch_ms: number | null;
   latency_ack_ms: number | null;
   latency_fill_ms: number | null;
+  entry_price: string | null;
+  exit_price: string | null;
+  realized_pnl: string | null;
   updated_at: string;
 }
 
@@ -91,4 +95,63 @@ export interface AdminAssignment {
   multiplier_min: string;
   multiplier_max: string;
   status: string;
+}
+
+export interface StrategyView {
+  id: string;
+  strategy_key: string;
+  strategy_version: string;
+  name: string;
+  description: string | null;
+  symbol: string | null;
+  timeframe: string | null;
+  price: string | null;
+  profit_share_percent: string | null;
+  base_lot: string | null;
+  is_active: boolean;
+}
+
+export interface MyAssignmentView {
+  id: string;
+  strategy_id: string;
+  strategy_key: string;
+  strategy_name: string;
+  master_lot: string;
+  multiplier: string;
+  multiplier_min: string;
+  multiplier_max: string;
+  effective_lot: string;
+  status: string;
+  payment_status: string;
+  purchased_at: string | null;
+  expires_at: string | null;
+}
+
+export interface PnlSummary {
+  realized_pnl: string;
+  attributable_trades: number;
+  realized_trades: number;
+  match_rate_percent: number;
+}
+
+export interface Mt5ConnectionView {
+  id: string;
+  broker_server: string;
+  login: string;
+  status: string;
+  last_checked_at: string | null;
+  last_error: string | null;
+}
+
+export interface AdminMt5ConnectionView extends Mt5ConnectionView {
+  user_id: string;
+  user_display_name: string;
+}
+
+export interface OpsSummary {
+  total_signals: number;
+  total_executions: number;
+  execution_state_counts: Record<string, number>;
+  stuck_unknown_count: number;
+  revoked_assignments: number;
 }

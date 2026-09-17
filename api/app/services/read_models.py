@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from protrix_contracts.db.models import (
@@ -14,6 +15,7 @@ from protrix_contracts.db.models import (
     User,
     UserRole,
 )
+from protrix_contracts.lifecycle import ExecutionState
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -70,6 +72,7 @@ def list_executions(
                 "user_display_name": user.display_name,
                 "strategy_key": strategy.strategy_key,
                 "symbol": intent.symbol,
+                "action": signal.action,
                 "command_target": intent.command_target,
                 "computed_lot": format(intent.computed_lot, "f"),
                 "adapter": ex.adapter,
@@ -80,10 +83,45 @@ def list_executions(
                 "latency_dispatch_ms": ex.latency_dispatch_ms,
                 "latency_ack_ms": ex.latency_ack_ms,
                 "latency_fill_ms": ex.latency_fill_ms,
+                "entry_price": format(ex.entry_price, "f") if ex.entry_price is not None else None,
+                "exit_price": format(ex.exit_price, "f") if ex.exit_price is not None else None,
+                "realized_pnl": (
+                    format(ex.realized_pnl, "f") if ex.realized_pnl is not None else None
+                ),
                 "updated_at": ex.updated_at.isoformat(),
             }
         )
     return out
+
+
+def pnl_summary(session: Session, *, viewer_subject: str, viewer_role: UserRole) -> dict[str, Any]:
+    """PRD 5.6: P&L attribution. Realized only - an execution with no
+    ``realized_pnl`` yet (position still open, or no real broker fills have
+    landed - see docs/FULL-BUILD-PLAN.md Phase 5) simply isn't counted yet,
+    never estimated.
+    """
+    stmt = select(Execution, OrderIntent).join(
+        OrderIntent, Execution.order_intent_id == OrderIntent.id
+    )
+    if viewer_role is UserRole.USER:
+        stmt = stmt.where(OrderIntent.user_id == viewer_subject)
+
+    total = Decimal("0")
+    realized_count = 0
+    attributable_count = 0
+    for ex, _intent in session.execute(stmt).all():
+        attributable_count += 1
+        if ex.realized_pnl is not None:
+            total += ex.realized_pnl
+            realized_count += 1
+
+    match_rate = round(100 * realized_count / attributable_count) if attributable_count else 0
+    return {
+        "realized_pnl": format(total, "f"),
+        "attributable_trades": attributable_count,
+        "realized_trades": realized_count,
+        "match_rate_percent": match_rate,
+    }
 
 
 def list_users(session: Session) -> list[dict[str, Any]]:
@@ -105,6 +143,37 @@ def list_users(session: Session) -> list[dict[str, Any]]:
         }
         for u in users
     ]
+
+
+def ops_summary(session: Session) -> dict[str, Any]:
+    """Admin-facing pipeline health (PRD 3.1, 11, 12): duplicate-signal,
+    disconnected/stuck-execution, and broker-rejection visibility.
+
+    Duplicate-signal rejection and stuck-in-UNKNOWN detection already exist
+    at the data layer (signal_id uniqueness, ExecutionState.UNKNOWN); this is
+    what surfaces them for an admin instead of only being visible in logs.
+    """
+    execution_state_counts = dict(
+        session.execute(select(Execution.state, func.count()).group_by(Execution.state)).all()
+    )
+    total_signals = session.scalar(select(func.count()).select_from(Signal)) or 0
+    total_executions = session.scalar(select(func.count()).select_from(Execution)) or 0
+    revoked_assignments = (
+        session.scalar(
+            select(func.count())
+            .select_from(StrategyAssignment)
+            .where(StrategyAssignment.payment_status == "REVOKED")
+        )
+        or 0
+    )
+
+    return {
+        "total_signals": total_signals,
+        "total_executions": total_executions,
+        "execution_state_counts": execution_state_counts,
+        "stuck_unknown_count": execution_state_counts.get(ExecutionState.UNKNOWN.value, 0),
+        "revoked_assignments": revoked_assignments,
+    }
 
 
 def list_assignments(session: Session) -> list[dict[str, Any]]:

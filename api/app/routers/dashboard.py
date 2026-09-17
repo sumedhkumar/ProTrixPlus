@@ -41,3 +41,11 @@ def executions(
     claims: Claims = Depends(current_claims),
 ) -> list[dict[str, Any]]:
     return read_models.list_executions(db, viewer_subject=claims.subject, viewer_role=claims.role)
+
+
+@router.get("/me/pnl-summary")
+def pnl_summary(
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    return read_models.pnl_summary(db, viewer_subject=claims.subject, viewer_role=claims.role)

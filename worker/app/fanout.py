@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import UTC, datetime
 
 from protrix_contracts.db.models import (
     Execution,
@@ -24,7 +25,7 @@ from protrix_contracts.db.models import (
     StrategyAssignment,
     User,
 )
-from protrix_contracts.envelope import command_target_for_action
+from protrix_contracts.envelope import MANAGEMENT_ACTIONS, Action, command_target_for_action
 from protrix_contracts.lifecycle import ExecutionState
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -58,9 +59,21 @@ def process_signal(
             Strategy.strategy_version == signal.strategy_version,
         )
     )
-    if strategy is None or not strategy.is_active:
+    if strategy is None:
         log.warning(
-            "process_signal: strategy %s/%s missing or inactive",
+            "process_signal: strategy %s/%s missing", signal.strategy_key, signal.strategy_version
+        )
+        return []
+
+    # PRD 4.3 step 5 / docs/FULL-BUILD-PLAN.md decision #3: OFF blocks NEW
+    # entries only. A management/exit action (CLOSE, PARTIAL_CLOSE,
+    # MODIFY_SLTP, EMERGENCY_CLOSE) must still be able to close an already-open
+    # position even while the strategy is OFF - otherwise turning a strategy
+    # off would strand every client's open position with no way to exit it.
+    is_management = Action(signal.action) in MANAGEMENT_ACTIONS
+    if not strategy.is_active and not is_management:
+        log.info(
+            "process_signal: strategy %s/%s is OFF, blocking new entry",
             signal.strategy_key,
             signal.strategy_version,
         )
@@ -82,8 +95,9 @@ def process_signal(
     pairs = session.execute(assignment_query.order_by(User.created_at)).all()
 
     touched: list[Execution] = []
+    now = datetime.now(UTC)
     for assignment, user in pairs:
-        decision = evaluate(user, assignment)
+        decision = evaluate(user, assignment, now=now)
         if decision.status is not Eligibility.ACTIVE:
             log.info("skip user=%s: eligibility=%s", user.id, decision.status.value)
             continue

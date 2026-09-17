@@ -52,7 +52,10 @@ python infra/scripts/simulate_signal.py
 Open <http://localhost:3000>, sign in as **USER** or **SUPER_ADMIN** (mock
 identity, no password), and watch the signal and its execution appear.
 
-Full reset: `docker compose -f infra/docker-compose.yml down -v`.
+Back up real data any time: `make backup` (writes to `infra/backups/`,
+restore with `make restore`). Full reset (wipes every account/signal - auto
+backs up first, asks for confirmation): `make reset`. Don't run
+`docker compose down -v` directly - it skips both safety steps.
 
 ### No Docker?
 

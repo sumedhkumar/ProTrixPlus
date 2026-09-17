@@ -36,8 +36,23 @@ python infra/scripts/simulate_signal.py # fire one mock signal
 
 Open http://localhost:3000 .
 
-## Full reset
+## Backups
 
 ```bash
-docker compose -f infra/docker-compose.yml down -v
+make backup   # pg_dump the live protrix db to infra/backups/ (kept: last 10)
+make restore  # restore the most recent infra/backups/ dump
 ```
+
+Plain restarts (`docker compose restart postgres`, `up -d`, rebuilding other
+services) never touch the postgres volume - only `down -v`, `docker volume
+rm`, or `docker system prune --volumes` destroy it.
+
+## Full reset (destructive - wipes every account and signal)
+
+```bash
+make reset
+```
+
+This auto-runs `make backup` first, then asks you to type `yes` before
+running `docker compose -f infra/docker-compose.yml down -v`. Don't run the
+raw `down -v` directly - it skips both the backup and the confirmation.
