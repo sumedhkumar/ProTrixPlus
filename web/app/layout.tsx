@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Protrixplus (S0 skeleton)",
-  description: "Mock skeleton dashboard shells",
+  title: { default: "ProTrixPlus | Trading workspace", template: "%s | ProTrixPlus" },
+  description: "Your strategies, accounts, and execution activity in one trading workspace.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -26,7 +26,7 @@ def _constraint_names() -> set[str]:
 def test_invariant_constraints_exist_by_name() -> None:
     names = _constraint_names()
     # no-duplicate-intent (fan-out inserts ON CONFLICT against this exact name)
-    assert "uq_order_intents_user_id_strategy_id_signal_id_command_target" in names
+    assert "uq_order_intents_signal_op_key" in names
     # idempotent acceptance
     assert "uq_signals_signal_id" in names
     assert "uq_signals_idempotency_key" in names

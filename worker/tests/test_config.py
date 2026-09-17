@@ -20,6 +20,16 @@ def test_mt5_worker_routes_every_account_to_its_own_group(monkeypatch) -> None:
     assert config.consumer_name == "worker-mt5-bob-trader-one-example-test"
 
 
+def test_mt5_enrollment_route_isolated_from_legacy_user_route(monkeypatch) -> None:
+    monkeypatch.setenv("PROTRIX_EXECUTION_ADAPTER", "mt5")
+    monkeypatch.setenv("PROTRIX_MT5_ENROLLMENT_ID", "25fbaa8e-7ae4-4cd6-8baf-b4d03c0a6158")
+    monkeypatch.delenv("PROTRIX_SIGNAL_CONSUMER_GROUP", raising=False)
+    monkeypatch.delenv("PROTRIX_WORKER_NAME", raising=False)
+    config = WorkerConfig.from_env()
+    assert config.consumer_group == "protrix-workers-mt5-25fbaa8e-7ae4-4cd6-8baf-b4d03c0a6158"
+    assert config.consumer_name == "worker-mt5-25fbaa8e-7ae4-4cd6-8baf-b4d03c0a6158"
+
+
 def test_explicit_group_and_worker_name_are_preserved(monkeypatch) -> None:
     monkeypatch.setenv("PROTRIX_EXECUTION_ADAPTER", "mt5")
     monkeypatch.setenv("PROTRIX_SIGNAL_CONSUMER_GROUP", "protrix-workers-gold")

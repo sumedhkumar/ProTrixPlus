@@ -64,17 +64,41 @@ def _s0_metadata() -> MetaData:
     metadata = MetaData(naming_convention=target_metadata.naming_convention)
     for table in target_metadata.sorted_tables:
         if table.name in _S0_TABLES:
-            table.to_metadata(metadata)
+            copied = table.to_metadata(metadata)
+            # Historical migration 0001 must remain a true S0 snapshot.  New
+            # model columns can legitimately reference tables introduced by a
+            # later revision (for example order_intents.enrollment_id ->
+            # strategy_enrollments in 0007).  Strip only those future foreign
+            # keys from this cloned snapshot; their owning migrations add them
+            # at the correct point in history.
+            for constraint in list(copied.foreign_key_constraints):
+                target_table = constraint.elements[0].target_fullname.split(".", 1)[0]
+                if target_table not in _S0_TABLES:
+                    copied.constraints.remove(constraint)
+                    for foreign_key in constraint.elements:
+                        copied.foreign_keys.discard(foreign_key)
     return metadata
 
 
 def upgrade() -> None:
     bind = op.get_bind()
     _s0_metadata().create_all(bind=bind)
+    # ``target_metadata`` is intentionally shared by the running services and
+    # therefore evolves. Reconstruct the exact original S0 shape after the
+    # clone so later historical migrations still own their own deltas.
+    op.drop_constraint("uq_order_intents_signal_op_key", "order_intents", type_="unique")
+    op.create_unique_constraint(
+        "uq_order_intents_user_id_strategy_id_signal_id_command_target",
+        "order_intents",
+        ["user_id", "strategy_id", "signal_id", "command_target"],
+    )
+    op.drop_column("order_intents", "enrollment_id")
+    op.drop_column("order_intents", "execution_key")
+    op.drop_column("mock_broker_deals", "account_ref")
     op.execute(_AUDIT_GUARD)
 
 
 def downgrade() -> None:
     bind = op.get_bind()
     op.execute(_AUDIT_GUARD_DROP)
-    target_metadata.drop_all(bind=bind)
+    _s0_metadata().drop_all(bind=bind)

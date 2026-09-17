@@ -40,6 +40,29 @@ def test_replaying_the_same_signal_creates_no_duplicates(sf, redis_client, seede
         assert session.scalar(select(func.count()).select_from(Execution)) == 2
 
 
+def test_transport_filter_keeps_mock_worker_off_native_routes(sf, redis_client, seeded) -> None:
+    signal_row_id = make_signal(sf, signal_id="native-route-only")
+    adapter = MockExecutionAdapter(sf, redis_client)
+
+    with sf() as session:
+        touched = process_signal(
+            session,
+            signal_row_id,
+            adapter,
+            active_transport="NATIVE_MT5",
+        )
+        assert touched == []
+
+    with sf() as session:
+        touched = process_signal(
+            session,
+            signal_row_id,
+            adapter,
+            active_transport="MOCK",
+        )
+        assert len(touched) == 2
+
+
 def test_duplicate_intent_is_blocked_by_db_constraint(sf, seeded) -> None:
     from decimal import Decimal
 

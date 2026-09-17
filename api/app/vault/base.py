@@ -58,6 +58,15 @@ class CredentialResolver(Protocol):
 
 @runtime_checkable
 class CredentialVault(Protocol):
+    def store_mt5_credentials(
+        self,
+        *,
+        account_ref: str,
+        login: str,
+        password: str,
+        server: str,
+    ) -> str: ...
+
     def issue_handle(self, *, account_ref: str, scope: str) -> ScopedCredentialHandle: ...
 
     def revoke(self, handle_id: str) -> None: ...

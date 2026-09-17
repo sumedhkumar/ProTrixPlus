@@ -50,6 +50,8 @@ def _handle(
     fields: dict[str, str],
     adapter: ExecutionAdapter,
     active_user_email: str | None,
+    active_enrollment_id: uuid.UUID | None,
+    active_transport: str | None,
 ) -> None:
     aggregate_id = fields.get("aggregate_id")
     aggregate_type = fields.get("aggregate_type", "signal")
@@ -63,6 +65,8 @@ def _handle(
             uuid.UUID(aggregate_id),
             adapter,
             active_user_email=active_user_email,
+            active_enrollment_id=active_enrollment_id,
+            active_transport=active_transport,
         )
     finally:
         session.close()
@@ -78,6 +82,8 @@ def consume_once(
     consumer: str,
     reclaim_idle_ms: int,
     active_user_email: str | None = None,
+    active_enrollment_id: uuid.UUID | None = None,
+    active_transport: str | None = None,
     block_ms: int = 2000,
     count: int = 10,
 ) -> int:
@@ -130,7 +136,14 @@ def consume_once(
     processed = 0
     for msg_id, fields in entries:
         try:
-            _handle(session_factory, fields, adapter, active_user_email)
+            _handle(
+                session_factory,
+                fields,
+                adapter,
+                active_user_email,
+                active_enrollment_id,
+                active_transport,
+            )
             redis.xack(stream, group, msg_id)
             processed += 1
         except Exception:

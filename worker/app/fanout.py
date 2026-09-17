@@ -18,6 +18,7 @@ import uuid
 
 from protrix_contracts.db.models import (
     AuditEvent,
+    EnrollmentAccount,
     Execution,
     ManagedPosition,
     ManagedPositionStatus,
@@ -25,11 +26,13 @@ from protrix_contracts.db.models import (
     Signal,
     Strategy,
     StrategyAssignment,
+    StrategyEnrollment,
+    TradingAccount,
     User,
 )
 from protrix_contracts.envelope import command_target_for_action
 from protrix_contracts.lifecycle import ExecutionState
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -56,11 +59,18 @@ def _upsert_intent(
     assignment: StrategyAssignment,
     eligibility_status: str,
 ) -> OrderIntent:
+    enrollment = session.scalar(
+        select(StrategyEnrollment).where(
+            StrategyEnrollment.user_id == user.id,
+            StrategyEnrollment.strategy_id == strategy.id,
+        )
+    )
     session.execute(
         pg_insert(OrderIntent)
         .values(
             user_id=user.id,
             strategy_id=strategy.id,
+            enrollment_id=enrollment.id if enrollment is not None else None,
             signal_id=signal.id,
             command_target=command_target,
             execution_key=execution_key,
@@ -111,6 +121,8 @@ def process_signal(
     adapter: ExecutionAdapter,
     *,
     active_user_email: str | None = None,
+    active_enrollment_id: uuid.UUID | None = None,
+    active_transport: str | None = None,
 ) -> list[Execution]:
     signal = session.get(Signal, uuid.UUID(str(signal_row_id)))
     if signal is None:
@@ -146,6 +158,44 @@ def process_signal(
         assignment_query = assignment_query.where(StrategyAssignment.status == "ACTIVE")
     if active_user_email:
         assignment_query = assignment_query.where(User.email == active_user_email)
+    enrollment_joined = False
+    if active_transport is not None:
+        # The shared mock worker must never claim a native or future MetaApi
+        # enrollment. Legacy assignments are routed by TradingAccount; new
+        # marketplace assignments are routed by their EnrollmentAccount.
+        assignment_query = (
+            assignment_query.outerjoin(
+                StrategyEnrollment,
+                (StrategyEnrollment.user_id == StrategyAssignment.user_id)
+                & (StrategyEnrollment.strategy_id == StrategyAssignment.strategy_id),
+            )
+            .outerjoin(
+                EnrollmentAccount,
+                EnrollmentAccount.enrollment_id == StrategyEnrollment.id,
+            )
+            .outerjoin(TradingAccount, TradingAccount.user_id == StrategyAssignment.user_id)
+            .where(
+                or_(
+                    and_(
+                        StrategyEnrollment.id.is_not(None),
+                        EnrollmentAccount.transport == active_transport,
+                    ),
+                    and_(
+                        StrategyEnrollment.id.is_(None),
+                        TradingAccount.transport == active_transport,
+                    ),
+                )
+            )
+        )
+        enrollment_joined = True
+    if active_enrollment_id is not None:
+        if not enrollment_joined:
+            assignment_query = assignment_query.join(
+                StrategyEnrollment,
+                (StrategyEnrollment.user_id == StrategyAssignment.user_id)
+                & (StrategyEnrollment.strategy_id == StrategyAssignment.strategy_id),
+            )
+        assignment_query = assignment_query.where(StrategyEnrollment.id == active_enrollment_id)
     pairs = session.execute(assignment_query.order_by(User.created_at)).all()
 
     touched: list[Execution] = []

@@ -185,3 +185,46 @@ export interface AdminOperation {
     allowed_symbols: string[];
   } | null;
 }
+
+export interface MarketplaceOffer {
+  strategy_id: string;
+  strategy_key: string;
+  strategy_version: string;
+  name: string;
+  description: string;
+  price_usd: string;
+  platform_fee_usd: string;
+  escrow_credit_usd: string;
+  duration_days: number;
+  minimum_wallet_usd: string;
+  profit_share_rate: string;
+  is_published: boolean;
+}
+
+export interface StrategyEnrollmentView {
+  id: string;
+  strategy_id: string;
+  strategy_key: string;
+  strategy_version: string;
+  strategy_name: string;
+  status: "CREDENTIALS_REQUIRED" | "ACTIVE" | "PAUSED" | "EXPIRED" | "DISABLED";
+  wallet: { currency: "USD"; balance: string; minimum: string; entry_allowed: boolean };
+  profit_share_rate: string;
+  access_ends_at: string | null;
+  account: {
+    provider_name: string;
+    server_identifier: string | null;
+    category: string;
+    transport: string;
+    status: string;
+    external_account_ref: string | null;
+    credential_configured: boolean;
+    worker_status: "HEALTHY" | "NO_WORKER";
+  } | null;
+}
+
+export interface AdminMarketplaceEnrollment extends StrategyEnrollmentView {
+  user_id: string;
+  user_email: string;
+  user_display_name: string;
+}

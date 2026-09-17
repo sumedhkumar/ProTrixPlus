@@ -24,6 +24,26 @@ class MockCredentialVault:
         # values, never logged, never returned by reference
         self._values: dict[str, dict[str, str]] = {}
 
+    def store_mt5_credentials(
+        self,
+        *,
+        account_ref: str,
+        login: str,
+        password: str,
+        server: str,
+    ) -> str:
+        """Local-only in-memory vault store.
+
+        It intentionally returns only an opaque key. Production must replace
+        this class with a durable managed vault implementation.
+        """
+        if not login or not password or not server:
+            raise VaultError("MT5 login, password, and server are required")
+        key_id = "local-vault:" + _secrets.token_hex(12)
+        self._meta[key_id] = {"key_id": key_id, "scope": "mt5", "account_ref": account_ref}
+        self._values[key_id] = {"login": login, "password": password, "server": server}
+        return key_id
+
     def issue_handle(self, *, account_ref: str, scope: str) -> ScopedCredentialHandle:
         handle_id = "vh_" + _secrets.token_hex(12)
         key_id = "kid_" + _secrets.token_hex(4)

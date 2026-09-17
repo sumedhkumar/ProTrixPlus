@@ -38,6 +38,7 @@ class WorkerConfig:
     health_port: int
     execution_adapter: str
     mt5_user_email: str
+    mt5_enrollment_id: str
     mt5_path: str
     mt5_login: int
     mt5_password: str
@@ -57,7 +58,8 @@ class WorkerConfig:
     def from_env(cls) -> WorkerConfig:
         execution_adapter = _get("PROTRIX_EXECUTION_ADAPTER", "mock")
         mt5_user_email = _get("PROTRIX_MT5_USER_EMAIL", "alice@example.test")
-        route_slug = _route_slug(mt5_user_email)
+        mt5_enrollment_id = _get("PROTRIX_MT5_ENROLLMENT_ID", "")
+        route_slug = _route_slug(mt5_enrollment_id or mt5_user_email)
         default_group = (
             f"protrix-workers-mt5-{route_slug}" if execution_adapter == "mt5" else "protrix-workers"
         )
@@ -83,6 +85,7 @@ class WorkerConfig:
             health_port=int(_get("PROTRIX_WORKER_HEALTH_PORT", "8000")),
             execution_adapter=execution_adapter,
             mt5_user_email=mt5_user_email,
+            mt5_enrollment_id=mt5_enrollment_id,
             mt5_path=_get(
                 "PROTRIX_MT5_PATH",
                 r"C:\Program Files\MetaTrader 5\terminal64.exe",

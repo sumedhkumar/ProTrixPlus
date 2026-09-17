@@ -110,6 +110,7 @@ function Load-Mt5Profile {
 
   $allowed = @{
     PROTRIX_MT5_USER_EMAIL = $true
+    PROTRIX_MT5_ENROLLMENT_ID = $true
     PROTRIX_MT5_PATH = $true
     PROTRIX_MT5_LOGIN = $true
     PROTRIX_MT5_PASSWORD = $true
@@ -348,6 +349,17 @@ function Do-Setup {
   Step 'Python venv'
   if (-not (Test-Path $VenvPy)) {
     if (Have-Cmd 'python') { & python -m venv $Venv } elseif (Have-Cmd 'py') { & py -3 -m venv $Venv } else { Die 'Python 3.12+ not found' }
+  }
+  $pythonVersionText = (& $VenvPy -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null).Trim()
+  try { $pythonVersion = [version]$pythonVersionText } catch { Die 'could not determine the venv Python version' }
+  if ($pythonVersion -lt [version]'3.12') {
+    Die "Python 3.12+ is required; venv currently uses $pythonVersionText. Remove .venv and run setup again with a supported interpreter."
+  }
+  & $VenvPy -m pip --version 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    if (-not (Have-Cmd 'uv')) { Die 'venv has no pip; install pip or uv, then run setup again' }
+    & uv pip install --python $VenvPy pip
+    if ($LASTEXITCODE -ne 0) { Die 'pip bootstrap failed' }
   }
   Ok "venv: $Venv"
 

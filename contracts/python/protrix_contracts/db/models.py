@@ -4,8 +4,8 @@ Every invariant that S0 must guarantee has a matching DB-level constraint here:
 
 * ``uq_signals_signal_id`` / ``uq_signals_idempotency_key`` - idempotent
   acceptance of a repeated ``signal_id``.
-* ``uq_order_intents_user_id_strategy_id_signal_id_command_target`` - at most one
-  order intent per (user, strategy, signal, command_target).
+* ``uq_order_intents_signal_op_key`` - at most one order intent per deterministic
+  signal operation key.
 * ``uq_executions_order_intent_id`` / ``uq_executions_client_order_id`` - one
   execution per intent; stable id for reconciliation matching.
 * rent settlements and ledger entries are immutable, idempotent records. A
@@ -35,6 +35,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -78,6 +79,33 @@ class RentLedgerEntryType(str, enum.Enum):
     RENT_CHARGE = "RENT_CHARGE"
     ADJUSTMENT = "ADJUSTMENT"
     REVERSAL = "REVERSAL"
+
+
+class EnrollmentStatus(str, enum.Enum):
+    """Lifecycle of one user's access to one marketplace strategy."""
+
+    CREDENTIALS_REQUIRED = "CREDENTIALS_REQUIRED"
+    ACTIVE = "ACTIVE"
+    PAUSED = "PAUSED"
+    EXPIRED = "EXPIRED"
+    DISABLED = "DISABLED"
+
+
+class PaymentStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    PAID = "PAID"
+    FAILED = "FAILED"
+    REFUND_REVIEW = "REFUND_REVIEW"
+
+
+class PaymentPurpose(str, enum.Enum):
+    STRATEGY_PURCHASE = "STRATEGY_PURCHASE"
+    WALLET_TOP_UP = "WALLET_TOP_UP"
+
+
+class PurchaseSource(str, enum.Enum):
+    RAZORPAY = "RAZORPAY"
+    ADMIN = "ADMIN"
 
 
 class AccountCategory(str, enum.Enum):
@@ -282,6 +310,298 @@ class Strategy(Base):
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="strategy")
 
 
+class StrategyOffer(Base):
+    """Published marketplace terms for a strategy.
+
+    Purchases snapshot these values so later price edits never rewrite history.
+    """
+
+    __tablename__ = "strategy_offers"
+    __table_args__ = (
+        UniqueConstraint("strategy_id", name="uq_strategy_offers_strategy_id"),
+        CheckConstraint("price_usd > 0", name="price_usd_positive"),
+        CheckConstraint("platform_fee_usd >= 0", name="platform_fee_usd_non_negative"),
+        CheckConstraint("escrow_credit_usd >= 0", name="escrow_credit_usd_non_negative"),
+        CheckConstraint(
+            "platform_fee_usd + escrow_credit_usd = price_usd", name="offer_split_matches_price"
+        ),
+        CheckConstraint("duration_days > 0", name="duration_days_positive"),
+        CheckConstraint("minimum_wallet_usd >= 0", name="minimum_wallet_usd_non_negative"),
+        CheckConstraint(
+            "profit_share_rate >= 0 AND profit_share_rate <= 1",
+            name="profit_share_rate_between_zero_and_one",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    strategy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("strategies.id"), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    price_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    platform_fee_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    escrow_credit_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    duration_days: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    minimum_wallet_usd: Mapped[Decimal] = mapped_column(
+        Numeric(18, 8), nullable=False, default=Decimal("10.00")
+    )
+    profit_share_rate: Mapped[Decimal] = mapped_column(
+        Numeric(9, 6), nullable=False, default=Decimal("0.10")
+    )
+    is_published: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class StrategyEnrollment(Base):
+    """One user's isolated strategy runtime and wallet boundary."""
+
+    __tablename__ = "strategy_enrollments"
+    __table_args__ = (
+        UniqueConstraint("user_id", "strategy_id", name="uq_strategy_enrollments_user_strategy"),
+        CheckConstraint(_in("status", EnrollmentStatus), name="status_allowed"),
+        CheckConstraint("minimum_wallet_usd >= 0", name="minimum_wallet_usd_non_negative"),
+        CheckConstraint(
+            "profit_share_rate >= 0 AND profit_share_rate <= 1",
+            name="profit_share_rate_between_zero_and_one",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    strategy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("strategies.id"), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default=EnrollmentStatus.CREDENTIALS_REQUIRED.value
+    )
+    minimum_wallet_usd: Mapped[Decimal] = mapped_column(
+        Numeric(18, 8), nullable=False, default=Decimal("10.00")
+    )
+    profit_share_rate: Mapped[Decimal] = mapped_column(
+        Numeric(9, 6), nullable=False, default=Decimal("0.10")
+    )
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class EnrollmentAccount(Base):
+    """Dedicated execution-account metadata for a strategy enrollment.
+
+    ``credential_key_ref`` is an opaque vault reference only. Plaintext MT5
+    credentials never enter the application database.
+    """
+
+    __tablename__ = "enrollment_accounts"
+    __table_args__ = (
+        UniqueConstraint("enrollment_id", name="uq_enrollment_accounts_enrollment_id"),
+        UniqueConstraint(
+            "server_identifier",
+            "broker_login",
+            name="uq_enrollment_accounts_server_broker_login",
+        ),
+        Index(
+            "uq_enrollment_accounts_external_account_ref",
+            "external_account_ref",
+            unique=True,
+            postgresql_where=text("external_account_ref IS NOT NULL"),
+        ),
+        CheckConstraint(_in("category", AccountCategory), name="category_allowed"),
+        CheckConstraint(_in("transport", AccountTransport), name="transport_allowed"),
+        CheckConstraint(_in("status", TradingAccountStatus), name="status_allowed"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    provider_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    server_identifier: Mapped[str | None] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(
+        String(12), nullable=False, default=AccountCategory.DEMO.value
+    )
+    transport: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=AccountTransport.MOCK.value
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=TradingAccountStatus.DISABLED.value
+    )
+    external_account_ref: Mapped[str | None] = mapped_column(String(160))
+    # MT5 login is an account identifier, not a secret. Passwords remain only
+    # in the vault; retaining this identifier lets workers prove route isolation.
+    broker_login: Mapped[str | None] = mapped_column(String(80))
+    credential_key_ref: Mapped[str | None] = mapped_column(String(160))
+    worker_adapter: Mapped[str | None] = mapped_column(String(32))
+    worker_name: Mapped[str | None] = mapped_column(String(120))
+    worker_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class StrategyPurchase(Base):
+    """Immutable 30-day entitlement purchase or administrator activation."""
+
+    __tablename__ = "strategy_purchases"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_strategy_purchases_idempotency_key"),
+        UniqueConstraint("razorpay_order_id", name="uq_strategy_purchases_razorpay_order_id"),
+        CheckConstraint(_in("source", PurchaseSource), name="source_allowed"),
+        CheckConstraint(_in("status", PaymentStatus), name="status_allowed"),
+        CheckConstraint("price_usd > 0", name="price_usd_positive"),
+        CheckConstraint(
+            "platform_fee_usd + escrow_credit_usd = price_usd", name="purchase_split_matches_price"
+        ),
+        CheckConstraint("ends_at > starts_at", name="period_ordered"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=PaymentStatus.PENDING.value
+    )
+    price_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    platform_fee_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    escrow_credit_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String(80))
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String(80), unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaymentOrder(Base):
+    """Internal, idempotent Razorpay order record for purchases and top-ups."""
+
+    __tablename__ = "payment_orders"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_payment_orders_idempotency_key"),
+        UniqueConstraint("razorpay_order_id", name="uq_payment_orders_razorpay_order_id"),
+        CheckConstraint(_in("purpose", PaymentPurpose), name="purpose_allowed"),
+        CheckConstraint(_in("status", PaymentStatus), name="status_allowed"),
+        CheckConstraint("amount_usd > 0", name="amount_usd_positive"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    purchase_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("strategy_purchases.id"))
+    purpose: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=PaymentStatus.PENDING.value
+    )
+    amount_usd: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String(80))
+    razorpay_payment_id: Mapped[str | None] = mapped_column(String(80), unique=True)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PaymentEvent(Base):
+    """Raw-provider event metadata, deduplicated before fulfillment."""
+
+    __tablename__ = "payment_events"
+    __table_args__ = (
+        UniqueConstraint("provider_event_id", name="uq_payment_events_provider_event_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    provider_event_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(96), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    received_at: Mapped[datetime] = _created_at()
+
+
+class EscrowLedgerEntry(Base):
+    """Append-only signed USD movements for one strategy enrollment."""
+
+    __tablename__ = "escrow_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_escrow_ledger_entries_idempotency_key"),
+        CheckConstraint("amount <> 0", name="amount_non_zero"),
+        CheckConstraint("currency = 'USD'", name="currency_usd"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    purchase_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("strategy_purchases.id"))
+    settlement_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey(
+            "strategy_settlements.id",
+            use_alter=True,
+            name="fk_escrow_ledger_entries_settlement_id_strategy_settlements",
+        )
+    )
+    entry_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD")
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    reason: Mapped[str | None] = mapped_column(String(240))
+    actor: Mapped[str | None] = mapped_column(String(120))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class ClosedTradeAttribution(Base):
+    """A managed closed broker deal eligible for exactly one settlement."""
+
+    __tablename__ = "closed_trade_attributions"
+    __table_args__ = (
+        UniqueConstraint(
+            "enrollment_id", "broker_deal_id", name="uq_closed_trade_attributions_enrollment_deal"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    broker_deal_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    broker_position_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    closed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    net_realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class StrategySettlement(Base):
+    """Immutable daily closed-trade profit-share calculation."""
+
+    __tablename__ = "strategy_settlements"
+    __table_args__ = (
+        UniqueConstraint(
+            "enrollment_id", "period_start", name="uq_strategy_settlements_enrollment_period_start"
+        ),
+        UniqueConstraint("idempotency_key", name="uq_strategy_settlements_idempotency_key"),
+        CheckConstraint("period_end > period_start", name="period_bounds_ordered"),
+        CheckConstraint(
+            "profit_share_rate >= 0 AND profit_share_rate <= 1",
+            name="profit_share_rate_between_zero_and_one",
+        ),
+        CheckConstraint("profit_share_due >= 0", name="profit_share_due_non_negative"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    enrollment_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("strategy_enrollments.id"), nullable=False
+    )
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    net_closed_realized_pnl: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    profit_share_rate: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    profit_share_due: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
 class StrategyAssignment(Base):
     __tablename__ = "strategy_assignments"
     __table_args__ = (
@@ -395,6 +715,8 @@ class OrderIntent(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     strategy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("strategies.id"), nullable=False)
+    # Null only for legacy MVP intents created before marketplace enrollment.
+    enrollment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("strategy_enrollments.id"))
     signal_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("signals.id"), nullable=False)
     command_target: Mapped[str] = mapped_column(String(16), nullable=False)
     execution_key: Mapped[str] = mapped_column(String(128), nullable=False)
@@ -487,6 +809,7 @@ class MockBrokerDeal(Base):
     client_order_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     ticket_id: Mapped[str] = mapped_column(String(64), nullable=False)
     deal_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_ref: Mapped[str] = mapped_column(String(160), nullable=False, default="legacy")
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
     volume: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     side: Mapped[str] = mapped_column(String(8), nullable=False)

@@ -37,11 +37,24 @@ class Settings(BaseSettings):
     dev_jwt_issuer: str = "protrixplus-dev-identity"
     dev_jwt_ttl_seconds: int = 3600
 
+    # Auth0 OIDC. Empty values deliberately keep local/CI on dev identity.
+    auth0_issuer: str = ""
+    auth0_audience: str = ""
+    auth0_role_claim: str = "https://protrixplus/role"
+    auth0_email_claim: str = "https://protrixplus/email"
+    auth0_name_claim: str = "https://protrixplus/name"
+
     # Mock webhook ingress auth (stands in for a signed TradingView source).
     webhook_shared_secret: SecretStr = SecretStr("dev-webhook-token-change-me")
     # Secret path segment for direct TradingView alert delivery. This is
     # separate from the simulator header secret so local tooling keeps working.
     tradingview_webhook_secret: SecretStr = SecretStr("")
+
+    # Razorpay is intentionally disabled until test/live keys are configured.
+    # The public key may go to Checkout; secrets never leave the server.
+    razorpay_key_id: str = ""
+    razorpay_key_secret: SecretStr = SecretStr("")
+    razorpay_webhook_secret: SecretStr = SecretStr("")
 
     # Redis stream the worker consumes signal events from.
     signal_stream: str = "protrix.signals.v1"
@@ -57,6 +70,8 @@ class Settings(BaseSettings):
             self.dev_jwt_secret.get_secret_value(),
             self.webhook_shared_secret.get_secret_value(),
             self.tradingview_webhook_secret.get_secret_value(),
+            self.razorpay_key_secret.get_secret_value(),
+            self.razorpay_webhook_secret.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):

@@ -8,6 +8,7 @@ is idempotent, so this can never duplicate an intent or execution.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from protrix_contracts.db.models import Signal
 from sqlalchemy import select
@@ -25,6 +26,8 @@ def run_catch_up(
     *,
     limit: int = 500,
     active_user_email: str | None = None,
+    active_enrollment_id: uuid.UUID | None = None,
+    active_transport: str | None = None,
 ) -> int:
     with session_factory() as session:
         signal_ids = list(
@@ -39,6 +42,8 @@ def run_catch_up(
                 signal_id,
                 adapter,
                 active_user_email=active_user_email,
+                active_enrollment_id=active_enrollment_id,
+                active_transport=active_transport,
             )
         except Exception:
             log.exception("catch-up: failed on signal %s", signal_id)

@@ -176,7 +176,7 @@ def upgrade() -> None:
 def downgrade() -> None:
     bind = op.get_bind()
     op.execute(_FINANCIAL_GUARD_DROP)
-    if _has_table(bind, "rent_ledger_entries"):
+    if context.is_offline_mode() or _has_table(bind, "rent_ledger_entries"):
         op.drop_table("rent_ledger_entries")
-    if _has_table(bind, "settlements"):
+    if context.is_offline_mode() or _has_table(bind, "settlements"):
         op.drop_table("settlements")

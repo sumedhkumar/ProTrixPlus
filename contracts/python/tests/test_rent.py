@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+
 from protrix_contracts.rent import (
     DEFAULT_RENT_RATE,
     calculate_rent_due,
@@ -10,7 +11,7 @@ from protrix_contracts.rent import (
 
 
 def test_default_rate_is_ten_percent() -> None:
-    assert DEFAULT_RENT_RATE == Decimal("0.10")
+    assert Decimal("0.10") == DEFAULT_RENT_RATE
     assert calculate_rent_due("125.00") == Decimal("12.50000000")
 
 

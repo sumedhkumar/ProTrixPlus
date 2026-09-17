@@ -1,26 +1,27 @@
 import type { SignalView } from "@/lib/api";
+import { Icon } from "@/components/Icon";
 
 export function SignalsTable({ signals }: { signals: SignalView[] }) {
   return (
     <div className="panel">
-      <h2>Signals</h2>
+      <div className="panel-header"><div><h2>Signals <span className="badge">{signals.length}</span></h2><p>Accepted alerts and their execution intents.</p></div><Icon name="signal" /></div>
       {signals.length === 0 ? (
-        <div className="empty" data-testid="signals-empty">
-          No signals yet. Post one with the simulator.
+        <div className="empty-state" data-testid="signals-empty">
+          <Icon name="signal" size={25} /><strong>Waiting for the first signal</strong><p>Accepted TradingView alerts will appear here with their execution details.</p>
         </div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        <div className="table-scroll" role="region" aria-label="Signals" tabIndex={0}>
           <table data-testid="signals-table">
             <thead>
               <tr>
-                <th>signal_id</th>
-                <th>strategy</th>
-                <th>action</th>
-                <th>symbol</th>
-                <th>tf</th>
-                <th>accepted_at (UTC)</th>
-                <th>intents</th>
-                <th>payload hash</th>
+                <th scope="col">Signal ID</th>
+                <th scope="col">Strategy</th>
+                <th scope="col">Action</th>
+                <th scope="col">Symbol</th>
+                <th scope="col">Timeframe</th>
+                <th scope="col">Accepted (UTC)</th>
+                <th scope="col">Intents</th>
+                <th scope="col">Payload hash</th>
               </tr>
             </thead>
             <tbody>

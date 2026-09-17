@@ -15,22 +15,31 @@ from __future__ import annotations
 import hashlib
 import importlib
 import logging
+from datetime import UTC, datetime
 from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 from typing import Any
 from uuid import UUID
 
 from protrix_contracts.db.models import (
+    EnrollmentAccount,
     Execution,
     ManagedPosition,
     ManagedPositionStatus,
     OrderIntent,
+    StrategyEnrollment,
     User,
 )
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.adapters.base import BrokerPosition, ExecutionTimeout, OrderIntentDTO, PlaceResult
+from app.adapters.base import (
+    BrokerClosedDeal,
+    BrokerPosition,
+    ExecutionTimeout,
+    OrderIntentDTO,
+    PlaceResult,
+)
 from app.config import WorkerConfig
 
 log = logging.getLogger("worker.adapter.mt5")
@@ -61,14 +70,60 @@ class MetaTrader5ExecutionAdapter:
                 "PROTRIX_MT5_PASSWORD, and PROTRIX_MT5_SERVER"
             )
 
+        self._routed_enrollment_id: UUID | None = None
+        self._expected_broker_login: str | None = None
         with self._sf() as session:
-            routed_user = session.scalar(select(User).where(User.email == config.mt5_user_email))
-        if routed_user is None:
-            raise RuntimeError(f"no ProTrix user exists for MT5 route {config.mt5_user_email!r}")
-        if not routed_user.is_active:
-            raise RuntimeError(f"ProTrix user for MT5 route {config.mt5_user_email!r} is inactive")
-        self._routed_user_id: UUID = routed_user.id
-        self._account_ref = f"acct-{routed_user.id}"
+            if config.mt5_enrollment_id:
+                try:
+                    enrollment_id = UUID(config.mt5_enrollment_id)
+                except ValueError as exc:
+                    raise RuntimeError("PROTRIX_MT5_ENROLLMENT_ID must be a UUID") from exc
+                route = session.execute(
+                    select(EnrollmentAccount, StrategyEnrollment, User)
+                    .join(
+                        StrategyEnrollment, EnrollmentAccount.enrollment_id == StrategyEnrollment.id
+                    )
+                    .join(User, StrategyEnrollment.user_id == User.id)
+                    .where(EnrollmentAccount.enrollment_id == enrollment_id)
+                ).first()
+                if route is None:
+                    raise RuntimeError("no enrollment account exists for PROTRIX_MT5_ENROLLMENT_ID")
+                enrollment_account, enrollment, routed_user = route
+                if not routed_user.is_active or enrollment_account.status != "ACTIVE":
+                    raise RuntimeError("configured enrollment account is inactive")
+                if enrollment_account.transport != "NATIVE_MT5":
+                    raise RuntimeError("configured enrollment account is not a native MT5 route")
+                if not enrollment_account.broker_login:
+                    raise RuntimeError(
+                        "configured enrollment account is missing its broker login identity"
+                    )
+                if (
+                    enrollment_account.server_identifier
+                    and enrollment_account.server_identifier != config.mt5_server
+                ):
+                    raise RuntimeError(
+                        "MT5 server does not match the configured enrollment account"
+                    )
+                self._routed_user_id = routed_user.id
+                self._routed_enrollment_id = enrollment.id
+                self._account_ref = (
+                    enrollment_account.external_account_ref or f"enrollment-{enrollment.id}"
+                )
+                self._expected_broker_login = enrollment_account.broker_login
+            else:
+                routed_user = session.scalar(
+                    select(User).where(User.email == config.mt5_user_email)
+                )
+                if routed_user is None:
+                    raise RuntimeError(
+                        f"no ProTrix user exists for MT5 route {config.mt5_user_email!r}"
+                    )
+                if not routed_user.is_active:
+                    raise RuntimeError(
+                        f"ProTrix user for MT5 route {config.mt5_user_email!r} is inactive"
+                    )
+                self._routed_user_id = routed_user.id
+                self._account_ref = f"acct-{routed_user.id}"
 
         connected = self._mt5.initialize(
             path=config.mt5_path,
@@ -94,6 +149,14 @@ class MetaTrader5ExecutionAdapter:
             self._mt5.shutdown()
             raise RuntimeError(
                 "MT5 login mismatch: terminal account does not match PROTRIX_MT5_LOGIN"
+            )
+        if (
+            self._expected_broker_login is not None
+            and str(actual_login) != self._expected_broker_login
+        ):
+            self._mt5.shutdown()
+            raise RuntimeError(
+                "MT5 login mismatch: terminal account does not match the enrollment account"
             )
         if actual_server and actual_server != config.mt5_server:
             self._mt5.shutdown()
@@ -298,12 +361,14 @@ class MetaTrader5ExecutionAdapter:
                 "position": int(ticket),
                 "symbol": order.symbol,
                 "sl": float(
-                    order.stop_loss if order.stop_loss is not None else getattr(position, "sl", 0)
+                    order.stop_loss
+                    if order.stop_loss is not None
+                    else getattr(position, "sl", Decimal("0"))
                 ),
                 "tp": float(
                     order.take_profit
                     if order.take_profit is not None
-                    else getattr(position, "tp", 0)
+                    else getattr(position, "tp", Decimal("0"))
                 ),
             }
             return self._send(request, order, ticket_id=ticket)
@@ -352,13 +417,16 @@ class MetaTrader5ExecutionAdapter:
             raise RuntimeError(f"MT5 positions_get failed (code={error[0]!r})")
 
         with self._sf() as session:
+            stmt = (
+                select(Execution)
+                .join(OrderIntent, Execution.order_intent_id == OrderIntent.id)
+                .where(OrderIntent.user_id == self._routed_user_id)
+            )
+            if self._routed_enrollment_id is not None:
+                stmt = stmt.where(OrderIntent.enrollment_id == self._routed_enrollment_id)
             known = {
                 _comment(row.client_order_id): row.client_order_id
-                for row in session.scalars(
-                    select(Execution)
-                    .join(OrderIntent, Execution.order_intent_id == OrderIntent.id)
-                    .where(OrderIntent.user_id == self._routed_user_id)
-                ).all()
+                for row in session.scalars(stmt).all()
             }
 
         buy_type = int(getattr(self._mt5, "POSITION_TYPE_BUY", 0))
@@ -380,6 +448,56 @@ class MetaTrader5ExecutionAdapter:
                 )
             )
         return result
+
+    def sync_closed_deals(self, account_ref: str, since: datetime) -> list[BrokerClosedDeal]:
+        if account_ref != self._account_ref:
+            return []
+        with self._sf() as session:
+            stmt = select(ManagedPosition.broker_position_ref).where(
+                ManagedPosition.user_id == self._routed_user_id
+            )
+            if self._routed_enrollment_id is not None:
+                stmt = (
+                    stmt.join(Execution, ManagedPosition.entry_execution_id == Execution.id)
+                    .join(OrderIntent, Execution.order_intent_id == OrderIntent.id)
+                    .where(OrderIntent.enrollment_id == self._routed_enrollment_id)
+                )
+            managed_position_refs = set(session.scalars(stmt))
+        deals = self._mt5.history_deals_get(since.astimezone(UTC), datetime.now(UTC))
+        if deals is None:
+            error = self._mt5.last_error()
+            raise RuntimeError(f"MT5 history_deals_get failed (code={error[0]!r})")
+        exit_entries = {
+            int(getattr(self._mt5, "DEAL_ENTRY_OUT", 1)),
+            int(getattr(self._mt5, "DEAL_ENTRY_OUT_BY", 3)),
+        }
+        attributed: list[BrokerClosedDeal] = []
+        for deal in deals:
+            if int(getattr(deal, "entry", -1)) not in exit_entries:
+                continue
+            position_ref = str(getattr(deal, "position_id", "") or "")
+            if not position_ref or position_ref not in managed_position_refs:
+                continue
+            deal_id = str(getattr(deal, "ticket", "") or "")
+            if not deal_id:
+                continue
+            closed_at = datetime.fromtimestamp(int(getattr(deal, "time", 0)), UTC)
+            net_pnl = sum(
+                (
+                    _decimal(getattr(deal, field, 0))
+                    for field in ("profit", "commission", "swap", "fee")
+                ),
+                Decimal("0"),
+            )
+            attributed.append(
+                BrokerClosedDeal(
+                    deal_id=deal_id,
+                    position_ref=position_ref,
+                    closed_at=closed_at,
+                    net_realized_pnl=net_pnl,
+                )
+            )
+        return attributed
 
     def close(self) -> None:
         self._mt5.shutdown()

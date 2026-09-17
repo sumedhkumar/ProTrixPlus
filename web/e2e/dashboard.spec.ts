@@ -16,22 +16,38 @@ const SAMPLE_SIGNAL = {
   take_profit: "1.09000",
 };
 
+const SETUP_SIGNAL = {
+  ...SAMPLE_SIGNAL,
+  signal_id: `e2e-setup-${Date.now()}`,
+  action: "SELL",
+  stop_loss: "1.09000",
+  take_profit: "1.07500",
+};
+
 test("user dashboard shows the signal and its execution status", async ({ page, request }) => {
-  // 1. Seed one signal through the real webhook ingress.
+  // 1. Normalize the mock position direction so this test stays repeatable
+  // after another local integration run has left a position open.
+  const setup = await request.post(`${API_URL}/webhook/tradingview`, {
+    headers: { "X-Webhook-Token": WEBHOOK_TOKEN, "Content-Type": "application/json" },
+    data: SETUP_SIGNAL,
+  });
+  expect(setup.ok()).toBeTruthy();
+
+  // 2. Seed the signal under test through the real webhook ingress.
   const post = await request.post(`${API_URL}/webhook/tradingview`, {
     headers: { "X-Webhook-Token": WEBHOOK_TOKEN, "Content-Type": "application/json" },
     data: SAMPLE_SIGNAL,
   });
   expect(post.ok()).toBeTruthy();
 
-  // 2. Sign in as a USER.
+  // 3. Sign in as a USER.
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as USER" }).click();
+  await page.getByRole("button", { name: "Sign in as Alice Trader" }).click();
   await page.waitForURL("**/dashboard");
 
   await expect(page.getByTestId("identity-role")).toHaveText("USER");
 
-  // 3. The signal appears in the signals table (worker fan-out is async).
+  // 4. The signal appears in the signals table (worker fan-out is async).
   await expect
     .poll(
       async () => {
@@ -45,7 +61,7 @@ test("user dashboard shows the signal and its execution status", async ({ page, 
     )
     .toBeGreaterThan(0);
 
-  // 4. Its execution row reaches a terminal-ish state.
+  // 5. Its execution row reaches a terminal-ish state.
   await expect
     .poll(
       async () => {
@@ -63,7 +79,7 @@ test("user dashboard shows the signal and its execution status", async ({ page, 
 
 test("a USER cannot reach the super-admin dashboard", async ({ page }) => {
   await page.goto("/login");
-  await page.getByRole("button", { name: "Sign in as USER" }).click();
+  await page.getByRole("button", { name: "Sign in as Alice Trader" }).click();
   await page.waitForURL("**/dashboard");
 
   await page.goto("/admin");

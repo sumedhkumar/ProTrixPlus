@@ -1,29 +1,30 @@
 import type { ExecutionView } from "@/lib/api";
+import { Icon } from "@/components/Icon";
 
 export function ExecutionsTable({ executions }: { executions: ExecutionView[] }) {
   return (
     <div className="panel">
-      <h2>Executions</h2>
+      <div className="panel-header"><div><h2>Executions <span className="badge">{executions.length}</span></h2><p>Order status, broker references, and execution latency.</p></div><Icon name="activity" /></div>
       {executions.length === 0 ? (
-        <div className="empty" data-testid="executions-empty">
-          No executions yet.
+        <div className="empty-state" data-testid="executions-empty">
+          <Icon name="activity" size={25} /><strong>No executions yet</strong><p>Once an eligible signal is processed, follow its execution status here.</p>
         </div>
       ) : (
-        <div style={{ overflowX: "auto" }}>
+        <div className="table-scroll" role="region" aria-label="Executions" tabIndex={0}>
           <table data-testid="executions-table">
             <thead>
               <tr>
-                <th>signal</th>
-                <th>user</th>
-                <th>symbol</th>
-                <th>target</th>
-                <th>lot</th>
-                <th>adapter</th>
-                <th>state</th>
-                <th>ticket</th>
-                <th>deal</th>
-                <th>reconciles</th>
-                <th>latency ms (disp/ack/fill)</th>
+                <th scope="col">Signal</th>
+                <th scope="col">User</th>
+                <th scope="col">Symbol</th>
+                <th scope="col">Target</th>
+                <th scope="col">Lot size</th>
+                <th scope="col">Adapter</th>
+                <th scope="col">State</th>
+                <th scope="col">Ticket</th>
+                <th scope="col">Deal</th>
+                <th scope="col">Reconciliations</th>
+                <th scope="col">Latency ms (dispatch / ack / fill)</th>
               </tr>
             </thead>
             <tbody>

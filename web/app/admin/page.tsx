@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 
 import { ExecutionsTable } from "@/components/ExecutionsTable";
 import { AdminControls } from "@/components/AdminControls";
+import { MarketplaceAdminControls } from "@/components/MarketplaceAdminControls";
 import { IdentityBar } from "@/components/IdentityBar";
+import { Icon } from "@/components/Icon";
 import { SignalsTable } from "@/components/SignalsTable";
 import {
   apiFetch,
@@ -11,6 +13,8 @@ import {
   type AdminUser,
   type ExecutionView,
   type Identity,
+  type AdminMarketplaceEnrollment,
+  type MarketplaceOffer,
   type SignalView,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
@@ -35,12 +39,14 @@ export default async function AdminPage() {
     redirect("/dashboard");
   }
 
-  const [users, assignments, operations, signals, executions] = await Promise.all([
+  const [users, assignments, operations, signals, executions, offers, marketplaceEnrollments] = await Promise.all([
     apiFetch<AdminUser[]>("/api/v1/admin/users", token),
     apiFetch<AdminAssignment[]>("/api/v1/admin/assignments", token),
     apiFetch<AdminOperation[]>("/api/v1/admin/operations", token),
     apiFetch<SignalView[]>("/api/v1/signals", token),
     apiFetch<ExecutionView[]>("/api/v1/executions", token),
+    apiFetch<MarketplaceOffer[]>("/api/v1/admin/marketplace/offers", token),
+    apiFetch<AdminMarketplaceEnrollment[]>("/api/v1/admin/marketplace/enrollments", token),
   ]);
   const managementReview = executions.filter(
     (execution) => execution.state === "UNKNOWN" && execution.command_target !== "ENTRY",
@@ -49,9 +55,14 @@ export default async function AdminPage() {
   return (
     <>
       <IdentityBar identity={identity} />
-      <div className="container">
-        <h1>Super Admin dashboard</h1>
-        <p style={{ color: "var(--muted)" }}>All users, assignments, signals and executions.</p>
+      <main id="main-content" className="container app-content">
+        <div className="page-heading"><div><h1>Super Admin dashboard</h1><p>Manage access, monitor execution, and keep every account in view.</p></div><span className="status-muted"><Icon name="shield" size={15} /> Administrator access</span></div>
+        <section className="metrics-grid" aria-label="Operations overview">
+          <div className="metric-card metric-card-accent"><div className="metric-label">Registered users <Icon name="user" /></div><strong className="metric-value">{users.length}</strong><span className="metric-caption">{users.filter((user) => user.is_active).length} active users</span></div>
+          <div className="metric-card"><div className="metric-label">Strategy assignments <Icon name="layers" /></div><strong className="metric-value">{assignments.length}</strong><span className="metric-caption">{assignments.filter((assignment) => assignment.status === "ACTIVE").length} active assignments</span></div>
+          <div className="metric-card"><div className="metric-label">Healthy workers <Icon name="activity" /></div><strong className="metric-value">{operations.filter((operation) => operation.account?.worker_status === "HEALTHY").length}</strong><span className="metric-caption">Across {operations.filter((operation) => operation.account).length} configured accounts</span></div>
+          <div className="metric-card"><div className="metric-label">Management review <Icon name="shield" /></div><strong className="metric-value">{managementReview.length}</strong><span className={managementReview.length ? "status-warn" : "status-good"}>{managementReview.length ? "Needs attention" : "No pending reviews"}</span></div>
+        </section>
 
         <div className="panel">
           <h2>Trading operations</h2>
@@ -76,6 +87,7 @@ export default async function AdminPage() {
         </div>
 
         <AdminControls operations={operations} assignments={assignments} />
+        <MarketplaceAdminControls users={users} offers={offers} enrollments={marketplaceEnrollments} />
 
         <div className="panel">
           <h2>Management review queue</h2>
@@ -155,7 +167,7 @@ export default async function AdminPage() {
 
         <SignalsTable signals={signals} />
         <ExecutionsTable executions={executions} />
-      </div>
+      </main>
     </>
   );
 }

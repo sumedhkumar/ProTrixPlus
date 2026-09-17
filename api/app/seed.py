@@ -19,11 +19,12 @@ from protrix_contracts.db.models import (
     RiskProfile,
     Strategy,
     StrategyAssignment,
+    StrategyOffer,
     Subscription,
     SubscriptionStatus,
-    TradingControl,
     TradingAccount,
     TradingAccountStatus,
+    TradingControl,
     User,
     UserRole,
 )
@@ -58,6 +59,10 @@ def assignment_id(slug: str) -> uuid.UUID:
     return uuid.uuid5(_NS, f"assignment:{slug}")
 
 
+def offer_id() -> uuid.UUID:
+    return uuid.uuid5(_NS, f"offer:{STRATEGY_KEY}:{STRATEGY_VERSION}")
+
+
 def seed() -> None:
     factory = get_session_factory()
     with factory() as session:
@@ -71,6 +76,24 @@ def seed() -> None:
                 is_active=True,
             )
             .on_conflict_do_nothing(index_elements=["id"])
+        )
+        session.execute(
+            pg_insert(StrategyOffer)
+            .values(
+                id=offer_id(),
+                strategy_id=strategy_id(),
+                description=(
+                    "A managed trend-following route with isolated MT5 execution and escrow."
+                ),
+                price_usd=Decimal("100.00"),
+                platform_fee_usd=Decimal("20.00"),
+                escrow_credit_usd=Decimal("80.00"),
+                duration_days=30,
+                minimum_wallet_usd=Decimal("10.00"),
+                profit_share_rate=Decimal("0.10"),
+                is_published=True,
+            )
+            .on_conflict_do_nothing(index_elements=["strategy_id"])
         )
 
         for slug, role, name, email in FAKE_USERS:

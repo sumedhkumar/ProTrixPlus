@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from protrix_contracts.db.models import MockBrokerDeal
@@ -23,6 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.adapters.base import (
+    BrokerClosedDeal,
     BrokerPosition,
     ExecutionTimeout,
     OrderIntentDTO,
@@ -63,6 +65,7 @@ class MockExecutionAdapter:
                     client_order_id=order.client_order_id,
                     ticket_id=ticket_id,
                     deal_id=deal_id,
+                    account_ref=order.account_ref,
                     symbol=order.symbol,
                     volume=order.volume,
                     side=order.side,
@@ -99,7 +102,10 @@ class MockExecutionAdapter:
             )
         with self._sf() as session:
             position = session.scalar(
-                select(MockBrokerDeal).where(MockBrokerDeal.ticket_id == order.broker_position_ref)
+                select(MockBrokerDeal).where(
+                    MockBrokerDeal.ticket_id == order.broker_position_ref,
+                    MockBrokerDeal.account_ref == order.account_ref,
+                )
             )
             if position is None or position.status != "OPEN":
                 return PlaceResult(
@@ -120,6 +126,7 @@ class MockExecutionAdapter:
                     client_order_id=order.client_order_id,
                     ticket_id=ticket_id,
                     deal_id=deal_id,
+                    account_ref=order.account_ref,
                     symbol=position.symbol,
                     volume=volume,
                     side=position.side,
@@ -136,7 +143,9 @@ class MockExecutionAdapter:
 
     def sync_positions(self, account_ref: str) -> list[BrokerPosition]:
         with self._sf() as session:
-            rows = session.scalars(select(MockBrokerDeal)).all()
+            rows = session.scalars(
+                select(MockBrokerDeal).where(MockBrokerDeal.account_ref == account_ref)
+            ).all()
         return [
             BrokerPosition(
                 client_order_id=r.client_order_id,
@@ -148,6 +157,26 @@ class MockExecutionAdapter:
                 status=r.status,
             )
             for r in rows
+        ]
+
+    def sync_closed_deals(self, account_ref: str, since: datetime) -> list[BrokerClosedDeal]:
+        """Expose deterministic mock exits; mock PnL is intentionally zero."""
+        with self._sf() as session:
+            rows = session.scalars(
+                select(MockBrokerDeal).where(
+                    MockBrokerDeal.account_ref == account_ref,
+                    MockBrokerDeal.status == "CLOSED",
+                    MockBrokerDeal.created_at >= since,
+                )
+            ).all()
+        return [
+            BrokerClosedDeal(
+                deal_id=row.deal_id,
+                position_ref=row.ticket_id,
+                closed_at=row.created_at.astimezone(UTC),
+                net_realized_pnl=Decimal("0"),
+            )
+            for row in rows
         ]
 
     # -- test / simulator helper -----------------------------------------------

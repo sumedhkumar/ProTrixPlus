@@ -8,6 +8,7 @@ and risk logic on its side of this line.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Protocol, runtime_checkable
 
@@ -58,6 +59,16 @@ class BrokerPosition:
     status: str
 
 
+@dataclass(frozen=True)
+class BrokerClosedDeal:
+    """One broker exit deal, with PnL already net of trading costs."""
+
+    deal_id: str
+    position_ref: str
+    closed_at: datetime
+    net_realized_pnl: Decimal
+
+
 @runtime_checkable
 class ExecutionAdapter(Protocol):
     name: str
@@ -68,4 +79,8 @@ class ExecutionAdapter(Protocol):
 
     def sync_positions(self, account_ref: str) -> list[BrokerPosition]:
         """Return current broker positions/deals for reconciliation."""
+        ...
+
+    def sync_closed_deals(self, account_ref: str, since: datetime) -> list[BrokerClosedDeal]:
+        """Return managed exit deals for closed-PnL attribution."""
         ...

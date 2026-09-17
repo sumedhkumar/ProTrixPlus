@@ -15,12 +15,22 @@ from fastapi import Depends, Header, HTTPException, Path, status
 from protrix_contracts.db.models import UserRole
 
 from app.config import Settings, get_settings
-from app.identity import Claims, IdentityError, IdentityProvider, MockIdentityProvider
+from app.identity import (
+    Auth0IdentityProvider,
+    Claims,
+    IdentityError,
+    IdentityProvider,
+    MockIdentityProvider,
+)
 
 
 @lru_cache
 def get_identity_provider() -> IdentityProvider:
     s = get_settings()
+    if s.auth0_issuer:
+        return Auth0IdentityProvider(s)
+    if not s.dev_identity_enabled:
+        raise IdentityError("no identity provider is configured")
     return MockIdentityProvider(
         secret=s.dev_jwt_secret.get_secret_value(),
         issuer=s.dev_jwt_issuer,

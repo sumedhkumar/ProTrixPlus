@@ -16,6 +16,7 @@ from pathlib import Path
 _PROFILE_KEYS = frozenset(
     {
         "PROTRIX_MT5_USER_EMAIL",
+        "PROTRIX_MT5_ENROLLMENT_ID",
         "PROTRIX_MT5_PATH",
         "PROTRIX_MT5_LOGIN",
         "PROTRIX_MT5_PASSWORD",
@@ -35,7 +36,9 @@ _PROFILE_KEYS = frozenset(
 )
 
 
-def _load_env_file(env_file: Path, *, override: bool, allowed: frozenset[str] | None = None) -> None:
+def _load_env_file(
+    env_file: Path, *, override: bool, allowed: frozenset[str] | None = None
+) -> None:
     if not env_file.is_file():
         return
     for raw_line in env_file.read_text(encoding="utf-8").splitlines():

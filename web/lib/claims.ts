@@ -30,12 +30,13 @@ export function decodeClaims(token: string | undefined | null): DecodedClaims | 
   if (parts.length !== 3) return null;
   try {
     const payload = JSON.parse(base64UrlDecode(parts[1]!)) as Record<string, unknown>;
-    if (!isRole(payload.role) || typeof payload.sub !== "string") return null;
+    const role = payload.role ?? payload["https://protrixplus/role"];
+    if (!isRole(role) || typeof payload.sub !== "string") return null;
     return {
       subject: payload.sub,
-      role: payload.role,
-      displayName: typeof payload.name === "string" ? payload.name : "",
-      email: typeof payload.email === "string" ? payload.email : "",
+      role,
+      displayName: typeof (payload.name ?? payload["https://protrixplus/name"]) === "string" ? String(payload.name ?? payload["https://protrixplus/name"]) : "",
+      email: typeof (payload.email ?? payload["https://protrixplus/email"]) === "string" ? String(payload.email ?? payload["https://protrixplus/email"]) : "",
       expiresAt: typeof payload.exp === "number" ? payload.exp : 0,
     };
   } catch {

@@ -8,6 +8,7 @@ fan-out must converge to exactly one intent/execution per user.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 
@@ -21,8 +22,13 @@ pytestmark = [pytest.mark.integration, pytest.mark.needs_docker]
 
 
 def _compose(*args: str) -> None:
+    project = os.environ.get("PROTRIX_COMPOSE_PROJECT")
+    command = ["docker", "compose"]
+    if project:
+        command.extend(["-p", project])
+    command.extend(["-f", COMPOSE_FILE, *args])
     subprocess.run(
-        ["docker", "compose", "-f", COMPOSE_FILE, *args],
+        command,
         check=True,
         capture_output=True,
         text=True,

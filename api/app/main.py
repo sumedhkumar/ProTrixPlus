@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import __version__
 from app.config import get_settings
 from app.logging_config import configure_logging
-from app.routers import admin, dashboard, dev_identity, health, mvp, webhook
+from app.routers import admin, dashboard, dev_identity, health, marketplace, mvp, webhook
 
 log = logging.getLogger("api")
 
@@ -32,6 +32,8 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     if settings.is_production and settings.dev_identity_enabled:
         raise RuntimeError("dev identity must not be enabled in production")
+    if settings.is_production and not settings.auth0_issuer:
+        raise RuntimeError("Auth0 must be configured in production")
     yield
     log.info("api shutting down")
 
@@ -55,6 +57,9 @@ def create_app() -> FastAPI:
     app.include_router(admin.router)
     app.include_router(mvp.router)
     app.include_router(mvp.admin_router)
+    app.include_router(marketplace.router)
+    app.include_router(marketplace.webhook_router)
+    app.include_router(marketplace.admin_router)
     return app
 
 

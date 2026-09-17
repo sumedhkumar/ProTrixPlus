@@ -13,6 +13,7 @@ import time
 
 import httpx
 import pytest
+import redis
 from sqlalchemy import create_engine, text
 
 API_URL = os.environ.get("PROTRIX_API_URL", "http://127.0.0.1:8000")
@@ -65,6 +66,22 @@ def engine():
     eng = create_engine(DATABASE_URL, future=True)
     yield eng
     eng.dispose()
+
+
+@pytest.fixture(autouse=True)
+def isolate_mock_runtime(engine):
+    """Keep independent integration tests from sharing open mock positions."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE managed_positions SET status = 'CLOSED', remaining_volume = 0 "
+                "WHERE status = 'OPEN'"
+            )
+        )
+    client = redis.from_url(REDIS_URL, decode_responses=True)
+    client.delete("mock_exec:arm_timeout")
+    client.close()
+    yield
 
 
 @pytest.fixture

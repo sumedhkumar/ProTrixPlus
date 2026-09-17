@@ -1,7 +1,8 @@
 """Worker test fixtures.
 
-``@pytest.mark.dbtest`` needs PostgreSQL + Redis; auto-skipped when either is
-unreachable, always run in CI.
+``@pytest.mark.dbtest`` needs explicitly provisioned test PostgreSQL + Redis;
+auto-skipped when either test service is not configured or unreachable. This
+prevents local runs from tearing down or flushing the live demo services.
 """
 
 from __future__ import annotations
@@ -30,10 +31,8 @@ from redis import Redis
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-DB_URL = os.environ.get(
-    "PROTRIX_DATABASE_URL", "postgresql+psycopg://protrix:protrix@localhost:5432/protrix"
-)
-REDIS_URL = os.environ.get("PROTRIX_REDIS_URL", "redis://localhost:6379/0")
+DB_URL = os.environ.get("PROTRIX_TEST_DATABASE_URL")
+REDIS_URL = os.environ.get("PROTRIX_TEST_REDIS_URL")
 
 _AUDIT_GUARD = """
 CREATE OR REPLACE FUNCTION audit_events_block_mutation() RETURNS trigger AS $$
@@ -50,6 +49,8 @@ STRATEGY_VERSION = "2025.09"
 
 
 def _reachable() -> bool:
+    if not DB_URL or not REDIS_URL:
+        return False
     try:
         eng = build_engine(DB_URL)
         with eng.connect() as c:
@@ -63,12 +64,15 @@ def _reachable() -> bool:
 
 @pytest.fixture(scope="session")
 def _services() -> None:
+    if not DB_URL or not REDIS_URL:
+        pytest.skip("PROTRIX_TEST_DATABASE_URL and PROTRIX_TEST_REDIS_URL are required")
     if not _reachable():
         pytest.skip(f"need PostgreSQL ({DB_URL}) and Redis ({REDIS_URL})")
 
 
 @pytest.fixture(scope="session")
 def engine(_services: None):
+    assert DB_URL is not None  # noqa: S101 - validated by the service fixture
     eng = build_engine(DB_URL)
     metadata.drop_all(eng)
     metadata.create_all(eng)
@@ -91,7 +95,9 @@ def clean_db(engine) -> None:
                 "TRUNCATE executions, order_intents, outbox, signals, "
                 "managed_positions, strategy_assignments, strategies, subscriptions, "
                 "trading_controls, risk_profiles, trading_accounts, rent_ledger_entries, "
-                "settlements, users, audit_events, "
+                "settlements, closed_trade_attributions, escrow_ledger_entries, payment_events, "
+                "payment_orders, strategy_settlements, strategy_purchases, enrollment_accounts, "
+                "strategy_enrollments, strategy_offers, users, audit_events, "
                 "mock_broker_deals RESTART IDENTITY CASCADE"
             )
         )

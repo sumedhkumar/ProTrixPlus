@@ -7,6 +7,9 @@ const allowed = [
   { method: "POST", pattern: /^\/api\/v1\/admin\/wallet\/top-ups$/ },
   { method: "PUT", pattern: /^\/api\/v1\/admin\/users\/[0-9a-f-]+\/(controls|subscription|risk-profile|account)$/i },
   { method: "PATCH", pattern: /^\/api\/v1\/admin\/assignments\/[0-9a-f-]+$/i },
+  { method: "POST", pattern: /^\/api\/v1\/admin\/marketplace\/manual-activations$/i },
+  { method: "POST", pattern: /^\/api\/v1\/admin\/marketplace\/enrollments\/[0-9a-f-]+\/wallet-adjustments$/i },
+  { method: "PUT", pattern: /^\/api\/v1\/admin\/marketplace\/(strategies\/[0-9a-f-]+\/offer|enrollments\/[0-9a-f-]+\/mt5-credentials)$/i },
 ] as const;
 
 export async function POST(request: Request) {

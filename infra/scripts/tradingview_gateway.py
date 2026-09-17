@@ -27,7 +27,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
         parsed = urlsplit(self.path)
-        token = parsed.path[len(PATH_PREFIX) :] if parsed.path.startswith(PATH_PREFIX) else ""
+        token = (
+            parsed.path[len(PATH_PREFIX) :]
+            if parsed.path.startswith(PATH_PREFIX)
+            else ""
+        )
         if not TOKEN_RE.fullmatch(token):
             self.send_error(404)
             return
@@ -49,7 +53,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 upstream_path,
                 body=body,
                 headers={
-                    "Content-Type": self.headers.get("Content-Type", "application/json"),
+                    "Content-Type": self.headers.get(
+                        "Content-Type", "application/json"
+                    ),
                     "Content-Length": str(len(body)),
                     "Connection": "close",
                 },
@@ -72,7 +78,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(response_body)
         self.close_connection = True
-        LOG.info("forwarded TradingView request status=%s bytes=%s", response.status, len(body))
+        LOG.info(
+            "forwarded TradingView request status=%s bytes=%s",
+            response.status,
+            len(body),
+        )
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         self.send_error(404)
@@ -96,9 +106,14 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=9000)
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
+    )
     server = ThreadingHTTPServer(("127.0.0.1", args.port), GatewayHandler)
-    LOG.info("gateway listening on 127.0.0.1:%s; forwarding only TradingView webhook", args.port)
+    LOG.info(
+        "gateway listening on 127.0.0.1:%s; forwarding only TradingView webhook",
+        args.port,
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:

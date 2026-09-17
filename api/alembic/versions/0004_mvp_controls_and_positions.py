@@ -99,5 +99,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     for name in ("managed_positions", "risk_profiles", "trading_controls", "subscriptions"):
-        if sa.inspect(op.get_bind()).has_table(name):
+        if context.is_offline_mode() or sa.inspect(op.get_bind()).has_table(name):
             op.drop_table(name)

@@ -19,7 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def _has_table(bind: sa.Connection, name: str) -> bool:
-    return sa.inspect(bind).has_table(name)
+    return context.is_offline_mode() or sa.inspect(bind).has_table(name)
 
 
 def _needs_create(bind: sa.Connection, name: str) -> bool:

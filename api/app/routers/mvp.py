@@ -148,7 +148,7 @@ def _wallet_balance(db: Session, user_id: UUID) -> Decimal:
             RentLedgerEntry.user_id == user_id
         )
     )
-    return Decimal(value)
+    return Decimal(value if value is not None else Decimal("0"))
 
 
 def _assignment_view(assignment: StrategyAssignment, strategy: Strategy) -> dict[str, Any]:
@@ -522,6 +522,7 @@ def update_account(
         for field, value in values.items():
             setattr(account, field, value)
     db.flush()
+    assert account is not None  # noqa: S101 - created or loaded above
     response = _account_view(account)
     _audit(
         db,
@@ -537,6 +538,7 @@ def update_account(
             "status": account.status,
         },
     )
+    assert response is not None  # noqa: S101 - account exists after the branch above
     return response
 
 

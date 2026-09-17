@@ -18,6 +18,7 @@ from decimal import Decimal
 
 from protrix_contracts.db.models import (
     AuditEvent,
+    EnrollmentAccount,
     Execution,
     ManagedPosition,
     ManagedPositionStatus,
@@ -70,7 +71,13 @@ def _advance(
     session.flush()
 
 
-def _account_ref(intent: OrderIntent) -> str:
+def _account_ref(session: Session, intent: OrderIntent) -> str:
+    if intent.enrollment_id is not None:
+        account = session.scalar(
+            select(EnrollmentAccount).where(EnrollmentAccount.enrollment_id == intent.enrollment_id)
+        )
+        if account is not None:
+            return account.external_account_ref or f"enrollment-{intent.enrollment_id}"
     return f"acct-{intent.user_id}"
 
 
@@ -90,7 +97,7 @@ def _dto(session: Session, intent: OrderIntent, client_order_id: str) -> OrderIn
         )
     return OrderIntentDTO(
         client_order_id=client_order_id,
-        account_ref=_account_ref(intent),
+        account_ref=_account_ref(session, intent),
         symbol=intent.symbol,
         side="SELL" if intent.action.upper() == "SELL" else "BUY",
         volume=intent.computed_lot,
@@ -235,7 +242,11 @@ def drive_new_execution(
     execution.ticket_id = result.ticket_id
     execution.deal_id = result.deal_id
     if result.status == "REJECTED":
+        execution.last_error = result.raw.get("reason") or result.raw.get("comment") or str(
+            result.raw
+        )
         _advance(session, execution, ExecutionState.REJECTED)
+        log.error("execution %s REJECTED: %s", execution.id, execution.last_error)
         return execution
 
     _advance(session, execution, ExecutionState.ACKNOWLEDGED, ts_attr="acknowledged_at")
@@ -277,7 +288,7 @@ def reconcile_unknown(
         )
         session.flush()
         return execution
-    account_ref = _account_ref(intent) if intent else ""
+    account_ref = _account_ref(session, intent) if intent else ""
     positions = adapter.sync_positions(account_ref)
     match = next((p for p in positions if p.client_order_id == execution.client_order_id), None)
 

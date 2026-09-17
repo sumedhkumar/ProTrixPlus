@@ -4,9 +4,9 @@ Tests split in two:
 
 * pure unit tests (schema validation, auth guard) run everywhere and stub the DB
   dependency;
-* ``@pytest.mark.dbtest`` tests need a real PostgreSQL. They are skipped
-  automatically when ``PROTRIX_DATABASE_URL`` is unreachable, and always run in
-  CI (which provides a postgres service).
+* ``@pytest.mark.dbtest`` tests need an explicitly provisioned test PostgreSQL.
+  They are skipped unless ``PROTRIX_TEST_DATABASE_URL`` is set and reachable,
+  which prevents local runs from tearing down the live demo database.
 """
 
 from __future__ import annotations
@@ -43,10 +43,7 @@ CREATE TRIGGER audit_events_no_update_delete
 
 
 def _database_url() -> str:
-    return os.environ.get(
-        "PROTRIX_DATABASE_URL",
-        "postgresql+psycopg://protrix:protrix@localhost:5432/protrix",
-    )
+    return os.environ.get("PROTRIX_TEST_DATABASE_URL", "")
 
 
 def _db_available(url: str) -> bool:
@@ -63,6 +60,8 @@ def _db_available(url: str) -> bool:
 @pytest.fixture(scope="session")
 def db_engine():
     url = _database_url()
+    if not url:
+        pytest.skip("PROTRIX_TEST_DATABASE_URL is not configured")
     if not _db_available(url):
         pytest.skip(f"no PostgreSQL reachable at {url}")
     engine = build_engine(url)

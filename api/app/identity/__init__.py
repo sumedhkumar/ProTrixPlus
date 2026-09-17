@@ -6,7 +6,14 @@ which signs fake JWT-like claims with a local HS256 secret. No passwords, no
 OIDC, no user store beyond the seeded fake users.
 """
 
+from app.identity.auth0 import Auth0IdentityProvider
 from app.identity.base import Claims, IdentityError, IdentityProvider
 from app.identity.mock import MockIdentityProvider
 
-__all__ = ["Claims", "IdentityError", "IdentityProvider", "MockIdentityProvider"]
+__all__ = [
+    "Claims",
+    "IdentityError",
+    "IdentityProvider",
+    "Auth0IdentityProvider",
+    "MockIdentityProvider",
+]
