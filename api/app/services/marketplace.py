@@ -108,7 +108,10 @@ def admin_create_strategy(session: Session, body: StrategyCatalogInput) -> dict[
         price=body.price,
         profit_share_percent=body.profit_share_percent,
         base_lot=body.base_lot,
-        is_active=True,
+        # New strategies start hidden from clients (see list_catalog's
+        # active_only filter) until an admin has priced it and explicitly
+        # approved it via admin_update_strategy(is_active=True).
+        is_active=False,
     )
     session.add(strategy)
     session.commit()
@@ -123,8 +126,6 @@ def admin_update_strategy(
     if strategy is None:
         raise NotFoundError(f"strategy {strategy_id} not found")
 
-    if is_active is not None:
-        strategy.is_active = is_active
     for field in (
         "name",
         "description",
@@ -136,6 +137,18 @@ def admin_update_strategy(
     ):
         if field in fields and fields[field] is not None:
             setattr(strategy, field, fields[field])
+
+    if is_active:
+        # A strategy only becomes visible to clients (list_catalog's
+        # active_only filter) once it's actually priced - don't let it go
+        # live with a blank subscription price or profit-share commission.
+        if strategy.price is None or strategy.profit_share_percent is None:
+            raise ValidationError(
+                "set a price and profit-share percent before activating this strategy"
+            )
+        strategy.is_active = True
+    elif is_active is False:
+        strategy.is_active = False
 
     session.commit()
     session.refresh(strategy)

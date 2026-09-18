@@ -68,8 +68,19 @@ def test_admin_creates_and_toggles_strategy(client: TestClient, admin_token: str
     )
     assert create.status_code == 201
     body = create.json()
-    assert body["is_active"] is True
+    # New strategies start hidden from clients until an admin explicitly
+    # approves them - even though price/profit_share_percent were supplied
+    # at creation.
+    assert body["is_active"] is False
     strategy_id = body["id"]
+
+    on = client.patch(
+        f"/api/v1/admin/strategies/{strategy_id}",
+        json={"is_active": True},
+        headers=_auth(admin_token),
+    )
+    assert on.status_code == 200
+    assert on.json()["is_active"] is True
 
     off = client.patch(
         f"/api/v1/admin/strategies/{strategy_id}",
@@ -78,6 +89,32 @@ def test_admin_creates_and_toggles_strategy(client: TestClient, admin_token: str
     )
     assert off.status_code == 200
     assert off.json()["is_active"] is False
+
+
+def test_activating_an_unpriced_strategy_is_rejected(
+    client: TestClient, admin_token: str
+) -> None:
+    strategy = client.post(
+        "/api/v1/admin/strategies",
+        json={"strategy_key": "unpriced", "strategy_version": "1.0", "name": "Unpriced"},
+        headers=_auth(admin_token),
+    ).json()
+
+    r = client.patch(
+        f"/api/v1/admin/strategies/{strategy['id']}",
+        json={"is_active": True},
+        headers=_auth(admin_token),
+    )
+    assert r.status_code == 422
+
+    # Setting price + profit_share_percent in the same request unblocks it.
+    r2 = client.patch(
+        f"/api/v1/admin/strategies/{strategy['id']}",
+        json={"is_active": True, "price": "49.00", "profit_share_percent": "20"},
+        headers=_auth(admin_token),
+    )
+    assert r2.status_code == 200
+    assert r2.json()["is_active"] is True
 
 
 def test_non_admin_cannot_create_strategy(client: TestClient, client_token: str) -> None:
@@ -92,19 +129,26 @@ def test_non_admin_cannot_create_strategy(client: TestClient, client_token: str)
 def test_client_browses_only_active_strategies(
     client: TestClient, admin_token, client_token
 ) -> None:
-    client.post(
+    active = client.post(
         "/api/v1/admin/strategies",
-        json={"strategy_key": "active-one", "strategy_version": "1.0", "name": "Active One"},
-        headers=_auth(admin_token),
-    )
-    inactive = client.post(
-        "/api/v1/admin/strategies",
-        json={"strategy_key": "inactive-one", "strategy_version": "1.0", "name": "Inactive One"},
+        json={
+            "strategy_key": "active-one",
+            "strategy_version": "1.0",
+            "name": "Active One",
+            "price": "49.00",
+            "profit_share_percent": "20",
+        },
         headers=_auth(admin_token),
     ).json()
     client.patch(
-        f"/api/v1/admin/strategies/{inactive['id']}",
-        json={"is_active": False},
+        f"/api/v1/admin/strategies/{active['id']}",
+        json={"is_active": True},
+        headers=_auth(admin_token),
+    )
+    # Created but never priced/approved - stays hidden by default.
+    client.post(
+        "/api/v1/admin/strategies",
+        json={"strategy_key": "inactive-one", "strategy_version": "1.0", "name": "Inactive One"},
         headers=_auth(admin_token),
     )
 

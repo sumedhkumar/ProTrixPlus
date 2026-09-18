@@ -62,7 +62,8 @@ export function AdminStrategyCatalog({ strategies }: { strategies: StrategyView[
     });
     setBusy(false);
     if (!res.ok) {
-      setError(`toggle failed (${res.status})`);
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `toggle failed (${res.status})`);
       return;
     }
     router.refresh();
@@ -81,6 +82,10 @@ export function AdminStrategyCatalog({ strategies }: { strategies: StrategyView[
       <div className="card-head">
         <span className="card-title">Strategy Lifecycle &amp; Catalog Management</span>
       </div>
+      <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: -6, marginBottom: 14 }}>
+        New strategies are created hidden from clients. Set a price and profit-share %, then click
+        &quot;Approve &amp; Enable&quot; to make it visible in the Strategy Marketplace.
+      </p>
       <div style={{ overflowX: "auto" }}>
         <table data-testid="admin-strategy-catalog">
           <thead>
@@ -116,22 +121,40 @@ export function AdminStrategyCatalog({ strategies }: { strategies: StrategyView[
                 </td>
                 <td>
                   <span className={`badge-pill ${s.is_active ? "badge-green" : "badge-neutral"}`}>
-                    {s.is_active ? "ACTIVE" : "PAUSED"}
+                    {s.is_active ? "ACTIVE - visible to clients" : "NOT ENABLED"}
                   </span>
                 </td>
                 <td>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button
-                      className="secondary"
-                      disabled={busy}
-                      onClick={() => void toggle(s.id, s.is_active)}
-                    >
-                      Turn {s.is_active ? "OFF" : "ON"}
-                    </button>
-                    <button className="secondary" onClick={() => void viewAlertConfig(s.id)}>
-                      Alert config
-                    </button>
-                  </div>
+                  {(() => {
+                    const unpriced = s.price === null || s.profit_share_percent === null;
+                    const blockedByPricing = !s.is_active && unpriced;
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            className="secondary"
+                            disabled={busy || blockedByPricing}
+                            title={
+                              blockedByPricing
+                                ? "Set a price and profit-share % (below) before approving this strategy for clients"
+                                : undefined
+                            }
+                            onClick={() => void toggle(s.id, s.is_active)}
+                          >
+                            {s.is_active ? "Turn OFF" : "Approve & Enable"}
+                          </button>
+                          <button className="secondary" onClick={() => void viewAlertConfig(s.id)}>
+                            Alert config
+                          </button>
+                        </div>
+                        {blockedByPricing ? (
+                          <span style={{ fontSize: 11, color: "var(--dim)" }}>
+                            Set price &amp; profit-share to enable
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}
