@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import enum
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -86,13 +87,30 @@ class OutboxStatus(str, enum.Enum):
     FAILED = "FAILED"
 
 
+class SubscriptionPackage(str, enum.Enum):
+    """Account-level access window, distinct from ``StrategyAssignment``
+    (which is a per-*strategy* entitlement). TRIAL_7D is granted free on
+    signup; the others are paid, applied for via ``PaymentSubmission``."""
+
+    TRIAL_7D = "TRIAL_7D"
+    PLAN_3M = "PLAN_3M"
+    PLAN_6M = "PLAN_6M"
+    PLAN_12M = "PLAN_12M"
+
+
+class PaymentSubmissionStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
 class IntentStatus(str, enum.Enum):
     CREATED = "CREATED"
     EXECUTING = "EXECUTING"
     SETTLED = "SETTLED"
 
 
-def _in(column: str, values: type[enum.Enum]) -> str:
+def _in(column: str, values: Iterable[enum.Enum]) -> str:
     joined = ", ".join(f"'{v.value}'" for v in values)
     return f"{column} IN ({joined})"
 
@@ -110,7 +128,13 @@ def _created_at() -> Mapped[datetime]:
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint(_in("role", UserRole), name="role_allowed"),)
+    __table_args__ = (
+        CheckConstraint(_in("role", UserRole), name="role_allowed"),
+        CheckConstraint(
+            "subscription_package IS NULL OR " + _in("subscription_package", SubscriptionPackage),
+            name="subscription_package_allowed",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False)
@@ -120,6 +144,19 @@ class User(Base):
     # NULL for seeded/dev-only users (they can only ever use /dev/login).
     # Never a plaintext password - PBKDF2-HMAC-SHA256, salted, see app/auth.py.
     password_hash: Mapped[str | None] = mapped_column(String(255))
+    phone: Mapped[str | None] = mapped_column(String(32))
+    # True right after a system-generated temp password (trial signup, or a
+    # payment-submission approval that creates the account) - the client is
+    # forced to /auth/set-password before reaching the dashboard. This is the
+    # email-ownership check: only the real inbox owner ever sees the temp
+    # password that was emailed to them.
+    must_change_password: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Account-level access window (distinct from per-strategy
+    # StrategyAssignment.expires_at). NULL for accounts that never had a
+    # subscription provisioned (e.g. seeded SUPER_ADMIN rows).
+    subscription_package: Mapped[str | None] = mapped_column(String(16))
+    subscription_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    subscription_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created_at()
 
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="user")
@@ -199,6 +236,71 @@ class StrategyAssignment(Base):
 
     user: Mapped[User] = relationship(back_populates="assignments")
     strategy: Mapped[Strategy] = relationship(back_populates="assignments")
+
+
+class PaymentSubmission(Base):
+    """A customer-submitted proof of manual payment (UTR/transaction
+    reference) for a paid ``SubscriptionPackage``, awaiting admin review.
+
+    ``user_id`` is NULL for an anonymous applicant (submitted from the public
+    landing page before ever creating an account) and set for an existing
+    user renewing an expired/expiring subscription. Trial signups never row
+    here - TRIAL_7D is granted directly, free, with no review step.
+    """
+
+    __tablename__ = "payment_submissions"
+    __table_args__ = (
+        # Paid packages only - trial is granted free, with no review step.
+        CheckConstraint(
+            _in(
+                "package",
+                (
+                    SubscriptionPackage.PLAN_3M,
+                    SubscriptionPackage.PLAN_6M,
+                    SubscriptionPackage.PLAN_12M,
+                ),
+            ),
+            name="package_allowed",
+        ),
+        CheckConstraint(_in("status", PaymentSubmissionStatus), name="status_allowed"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    phone: Mapped[str] = mapped_column(String(32), nullable=False)
+    package: Mapped[str] = mapped_column(String(16), nullable=False)
+    utr_reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=PaymentSubmissionStatus.PENDING.value
+    )
+    submitted_at: Mapped[datetime] = _created_at()
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class PasswordResetToken(Base):
+    """Self-service "Forgot password?" flow only - never used by the
+    system-generated temp-password mechanism (trial signup / payment
+    approval), which instead forces a change via ``User.must_change_password``.
+
+    ``token_hash`` is a plain (unsalted) sha256 hex digest of a
+    ``secrets.token_urlsafe(32)`` raw token. That's deliberate, not an
+    oversight: the raw token is already 256 bits of CSPRNG entropy (unlike a
+    user-chosen password), so a salted/iterated KDF buys nothing here and
+    would prevent the direct ``token_hash == ...`` lookup this flow needs.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
 
 
 class Signal(Base):

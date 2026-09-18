@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -59,8 +60,12 @@ export default function LoginPage() {
       setError(body.detail ?? `${mode} failed (${res.status})`);
       return;
     }
-    const body = (await res.json()) as { role: Role };
-    router.push(body.role === "SUPER_ADMIN" ? "/admin" : "/dashboard");
+    const body = (await res.json()) as { role: Role; must_change_password: boolean };
+    if (body.must_change_password) {
+      router.push("/set-password");
+    } else {
+      router.push(body.role === "SUPER_ADMIN" ? "/admin" : "/dashboard");
+    }
     router.refresh();
   }
 
@@ -190,9 +195,12 @@ export default function LoginPage() {
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
               <label style={{ fontSize: 12, color: "var(--muted)" }}>🔒 Password</label>
-              <span style={{ fontSize: 12, color: "var(--accent)", cursor: "not-allowed" }}>
+              <Link
+                href="/forgot-password"
+                style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
+              >
                 Forgot password?
-              </span>
+              </Link>
             </div>
             <div style={{ position: "relative" }}>
               <input
@@ -240,6 +248,15 @@ export default function LoginPage() {
         {error ? (
           <p style={{ color: "var(--bad)", marginTop: 12 }} role="alert">
             {error}
+          </p>
+        ) : null}
+
+        {authMode === "signup" ? (
+          <p style={{ color: "var(--dim)", fontSize: 12, marginTop: 12 }}>
+            Want a free 7-day trial instead?{" "}
+            <Link href="/trial" style={{ color: "var(--accent)", textDecoration: "none" }}>
+              Start here →
+            </Link>
           </p>
         ) : null}
 

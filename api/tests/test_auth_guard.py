@@ -37,10 +37,15 @@ def test_garbage_token_is_401(client_no_db: TestClient) -> None:
     assert r.status_code == 401
 
 
-def test_user_token_reaches_own_dashboard(client_no_db: TestClient, user_token: str) -> None:
-    r = client_no_db.get("/api/v1/me", headers={"Authorization": f"Bearer {user_token}"})
+def test_user_token_reaches_own_dashboard(client: TestClient, user_token: str) -> None:
+    # /me loads the User row (for must_change_password/subscription), so this
+    # needs a real (if empty) DB, not the MagicMock-stubbed client_no_db - the
+    # token's subject has no matching row, which /me handles as "no
+    # subscription provisioned" rather than an error.
+    r = client.get("/api/v1/me", headers={"Authorization": f"Bearer {user_token}"})
     assert r.status_code == 200
     assert r.json()["role"] == "USER"
+    assert r.json()["subscription"] is None
 
 
 def test_user_token_cannot_reach_admin(client_no_db: TestClient, user_token: str) -> None:

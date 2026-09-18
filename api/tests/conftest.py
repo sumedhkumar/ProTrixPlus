@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
 from app.db import get_db
+from app.email import MockEmailSender, get_email_sender
 from app.identity import MockIdentityProvider
 from app.main import create_app
 from app.security import get_identity_provider
@@ -120,9 +121,11 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROTRIX_WEBHOOK_SHARED_SECRET", "dev-webhook-token-change-me")
     get_settings.cache_clear()
     get_identity_provider.cache_clear()
+    get_email_sender.cache_clear()
     yield
     get_settings.cache_clear()
     get_identity_provider.cache_clear()
+    get_email_sender.cache_clear()
 
 
 @pytest.fixture
@@ -131,7 +134,14 @@ def identity() -> MockIdentityProvider:
 
 
 @pytest.fixture
-def client_no_db(identity: MockIdentityProvider) -> Iterator[TestClient]:
+def mock_email() -> MockEmailSender:
+    return MockEmailSender()
+
+
+@pytest.fixture
+def client_no_db(
+    identity: MockIdentityProvider, mock_email: MockEmailSender
+) -> Iterator[TestClient]:
     """App with the DB dependency stubbed out (a MagicMock session)."""
 
     def _fake_db() -> Iterator[MagicMock]:
@@ -139,6 +149,7 @@ def client_no_db(identity: MockIdentityProvider) -> Iterator[TestClient]:
 
     app = create_app()
     app.dependency_overrides[get_identity_provider] = lambda: identity
+    app.dependency_overrides[get_email_sender] = lambda: mock_email
     app.dependency_overrides[get_db] = _fake_db
     with TestClient(app) as c:
         yield c
@@ -151,7 +162,9 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-def client(db: Session, identity: MockIdentityProvider) -> Iterator[TestClient]:
+def client(
+    db: Session, identity: MockIdentityProvider, mock_email: MockEmailSender
+) -> Iterator[TestClient]:
     """App wired to a real (transactional, rolled-back) PostgreSQL session.
 
     For routes that actually read/write - auth signup/login, ingest via HTTP,
@@ -159,6 +172,7 @@ def client(db: Session, identity: MockIdentityProvider) -> Iterator[TestClient]:
     """
     app = create_app()
     app.dependency_overrides[get_identity_provider] = lambda: identity
+    app.dependency_overrides[get_email_sender] = lambda: mock_email
     app.dependency_overrides[get_db] = lambda: db
     with TestClient(app) as c:
         yield c

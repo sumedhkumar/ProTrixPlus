@@ -20,6 +20,7 @@ const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 const TABS: TabDef[] = [
   { href: "/admin", label: "Strategy Lifecycle", icon: "▤" },
   { href: "/admin/clients", label: "Clients & Risk Caps", icon: "◎" },
+  { href: "/admin/payments", label: "Payment Review", icon: "✉" },
   { href: "/admin/webhooks", label: "Webhook Telemetry", icon: "◔" },
   { href: "/admin/trades", label: "Global MT5 Trades", icon: "◷" },
   { href: "/admin/settlement", label: "EOD Profit-Share Settlement", icon: "$" },

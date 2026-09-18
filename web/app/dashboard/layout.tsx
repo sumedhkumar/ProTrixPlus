@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import { AppFooter } from "@/components/AppFooter";
 import type { EngineStats } from "@/components/ExecutionEngineStatus";
+import { SubscriptionGraceBanner } from "@/components/SubscriptionStatus";
 import { TabNav, type TabDef } from "@/components/TabNav";
 import { TopBar } from "@/components/TopBar";
 import { apiFetch, type Identity, type Mt5ConnectionView, type StrategyView } from "@/lib/api";
@@ -37,6 +38,8 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   } catch {
     redirect("/login");
   }
+  if (identity.must_change_password) redirect("/set-password");
+  if (identity.subscription?.hard_blocked) redirect("/subscribe?renew=true");
 
   const apiHealthy = await checkApiHealth();
   const strategies = await apiFetch<StrategyView[]>("/api/v1/strategies", token).catch(() => []);
@@ -60,7 +63,12 @@ export default async function DashboardLayout({ children }: { children: ReactNod
     <>
       <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
       <TabNav tabs={TABS} modeLabel="CLIENT SUBSCRIBER" />
-      <div className="container">{children}</div>
+      <div className="container">
+        {identity.subscription?.in_grace ? (
+          <SubscriptionGraceBanner subscription={identity.subscription} />
+        ) : null}
+        {children}
+      </div>
       <AppFooter />
     </>
   );

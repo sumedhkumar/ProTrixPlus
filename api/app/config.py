@@ -47,6 +47,32 @@ class Settings(BaseSettings):
     signal_stream: str = "protrix.signals.v1"
     signal_consumer_group: str = "protrix-workers"
 
+    # Outbound email (trial temp-password, payment-proof admin notification,
+    # forgot-password reset link). "mock" (default) never sends real mail -
+    # local/CI safety. "smtp" is Gmail by default (see infra/.env.example).
+    email_backend: Literal["smtp", "mock"] = "mock"
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from_name: str = "ProTrixPlus"
+    smtp_from_address: str = ""
+    # Where payment-proof (UTR) submissions get emailed for human review.
+    admin_notify_email: str = ""
+    # Used to build the password-reset link sent to a user's inbox.
+    frontend_base_url: str = "http://localhost:3000"
+
+    # Manual-payment instructions shown on /subscribe before a UTR submission.
+    # All optional - the frontend shows a "to be added" placeholder state for
+    # whichever of these are unset, per docs/FULL-BUILD-PLAN.md decision #4
+    # (no payment gateway; the customer transfers out-of-band).
+    payment_bank_account_name: str = ""
+    payment_bank_account_number: str = ""
+    payment_bank_ifsc: str = ""
+    payment_bank_name: str = ""
+    payment_upi_id: str = ""
+    payment_qr_code_url: str = ""
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -57,6 +83,7 @@ class Settings(BaseSettings):
             self.dev_jwt_secret.get_secret_value(),
             self.webhook_shared_secret.get_secret_value(),
             self.tradingview_webhook_secret.get_secret_value(),
+            self.smtp_password.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):
