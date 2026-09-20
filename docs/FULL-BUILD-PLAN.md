@@ -18,30 +18,35 @@ closed for this product; it doesn't appear anywhere below.
 
 ---
 
-## Decisions (confirmed 2026-09-17)
+## Open questions that gate specific phases (answer before those phases start)
 
-1. **MT5 integration method: MetaApi.cloud.** Confirms ADR-001's existing
-   direction — `MetaApiExecutionAdapter`, no Windows hosts per account.
-2. **Alert/exit contract: explicit `position_ref`.** Entry and exit alert
-   messages both carry a stable identifier; exits match against it rather
-   than "most recent open position." Consistent with the schema's existing
-   (currently rejected) `position_ref` field.
-3. **Close policy: leave open positions running.** Turning a strategy OFF
-   blocks new entries only; existing positions close via their own exit
-   signal or manual client action, not a forced close.
-4. **Payment/collection for MVP: admin-granted.** Clients pay the admin
-   out-of-band; the admin manually flips entitlement on/off. No payment
-   gateway integration in MVP, matching the PRD's own deferral of this to a
-   later phase.
+The PRD itself leaves these unanswered (Sections 2, 6, 7, 9, 10, 11, 13, 14
+were present as headers only, with no content, in what you pasted):
 
-## Open questions still outstanding (not yet blocking near-term work)
-
-5. **Settlement formula specifics** — gross vs. net-of-fees P&L, per-trade vs.
+1. **MT5 integration method** — native `MetaTrader5` Python package (Windows
+   terminal per account, per `docs/LOCAL-MT5.md`) vs. MetaApi.cloud (already
+   ProTrixPlus's own decided direction per its `ADR-001`)? Gates **Phase 5**.
+2. **Alert/exit contract.** How does a TradingView EXIT signal represent
+   *which* open position to close? This is a real, already-documented gap —
+   `docs/TRADINGVIEW-MT5.md` states the current adapter "rejects management
+   commands until a stable `position_ref` mapping is provided" and warns not
+   to use a generic order-fill message for exits. Distinct from question #3
+   below (this is about the signal's own format; #3 is about admin-initiated
+   deactivation). Gates **Phase 1, Phase 5**.
+3. **Close policy when admin turns a strategy OFF.** PRD 4.3 says OFF blocks
+   new entries but defers "handling of already-open positions" to a
+   separately configured policy that isn't defined. Gates **Phase 5**.
+4. **Settlement formula specifics** — gross vs. net-of-fees P&L, per-trade vs.
    daily-aggregate, and whether 10%/20% is per-strategy admin-configured or a
-   platform default. Gates **Phase 7** — will confirm before that phase starts.
+   platform default. Gates **Phase 7**.
+5. **Payment/collection workflow for MVP.** PRD 3.2 explicitly defers
+   "self-service payment gateway automation" to a later phase — my working
+   assumption is that MVP entitlement is admin-granted manually (an admin
+   flips a client's access on after receiving payment out-of-band). Confirm
+   or correct this — it changes Phase 2's and Phase 7's API/UI shape. Gates
+   **Phase 2, Phase 7**.
 6. **Referral bonus rules** — trigger condition (signup vs. first payment),
-   bonus amount/percentage, payout mechanism. Gates **Phase 8** — will confirm
-   before that phase starts.
+   bonus amount/percentage, payout mechanism. Gates **Phase 8**.
 
 One more thing worth flagging explicitly: **the AI Copilot / Market Radar /
 Kelly sizing / chat features are not in the PRD's functional requirements at

@@ -39,6 +39,10 @@ class WorkerConfig:
     mt5_magic: int
     mt5_deviation_points: int
     mt5_timeout_seconds: float
+    metaapi_token: str
+    metaapi_trading_enabled: bool
+    metaapi_magic: int
+    metaapi_timeout_seconds: float
     relay_poll_seconds: float
     relay_batch: int
     reclaim_idle_ms: int
@@ -71,6 +75,10 @@ class WorkerConfig:
             mt5_magic=int(_get("PROTRIX_MT5_MAGIC", "260909")),
             mt5_deviation_points=int(_get("PROTRIX_MT5_DEVIATION_POINTS", "20")),
             mt5_timeout_seconds=float(_get("PROTRIX_MT5_TIMEOUT_SECONDS", "30")),
+            metaapi_token=_get("PROTRIX_METAAPI_TOKEN", ""),
+            metaapi_trading_enabled=_bool("PROTRIX_METAAPI_TRADING_ENABLED", False),
+            metaapi_magic=int(_get("PROTRIX_METAAPI_MAGIC", "260910")),
+            metaapi_timeout_seconds=float(_get("PROTRIX_METAAPI_TIMEOUT_SECONDS", "30")),
             relay_poll_seconds=float(_get("PROTRIX_RELAY_POLL_SECONDS", "0.5")),
             relay_batch=int(_get("PROTRIX_RELAY_BATCH", "50")),
             reclaim_idle_ms=int(_get("PROTRIX_RECLAIM_IDLE_MS", "30000")),

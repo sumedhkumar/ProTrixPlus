@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     signal_stream: str = "protrix.signals.v1"
     signal_consumer_group: str = "protrix-workers"
 
+    # MetaApi.cloud (ADR-001) - same token the worker's MetaApiExecutionAdapter
+    # uses, so the API can also make its own calls (live balance, real
+    # self-service account provisioning) without needing a second credential.
+    metaapi_token: SecretStr = SecretStr("")
+    metaapi_default_region: str = "london"
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -57,6 +63,7 @@ class Settings(BaseSettings):
             self.dev_jwt_secret.get_secret_value(),
             self.webhook_shared_secret.get_secret_value(),
             self.tradingview_webhook_secret.get_secret_value(),
+            self.metaapi_token.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):

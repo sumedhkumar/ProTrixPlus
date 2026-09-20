@@ -5,6 +5,7 @@ import { StrategyMarketplaceCard } from "@/components/StrategyMarketplaceCard";
 import {
   apiFetch,
   type Identity,
+  type LiveBalance,
   type Mt5ConnectionView,
   type MyAssignmentView,
   type PnlSummary,
@@ -25,13 +26,15 @@ export const dynamic = "force-dynamic";
 export default async function TradingTerminalPage() {
   const token = getToken()!;
 
-  const [myAssignments, mt5Connection, pnlSummary, strategies, identity] = await Promise.all([
-    apiFetch<MyAssignmentView[]>("/api/v1/me/assignments", token),
-    apiFetch<Mt5ConnectionView | null>("/api/v1/me/mt5-connection", token),
-    apiFetch<PnlSummary>("/api/v1/me/pnl-summary", token),
-    apiFetch<StrategyView[]>("/api/v1/strategies", token),
-    apiFetch<Identity>("/api/v1/me", token),
-  ]);
+  const [myAssignments, mt5Connection, pnlSummary, strategies, identity, liveBalance] =
+    await Promise.all([
+      apiFetch<MyAssignmentView[]>("/api/v1/me/assignments", token),
+      apiFetch<Mt5ConnectionView | null>("/api/v1/me/mt5-connection", token),
+      apiFetch<PnlSummary>("/api/v1/me/pnl-summary", token),
+      apiFetch<StrategyView[]>("/api/v1/strategies", token),
+      apiFetch<Identity>("/api/v1/me", token),
+      apiFetch<LiveBalance>("/api/v1/me/mt5-connection/balance", token),
+    ]);
   const strategyById = new Map(strategies.map((s) => [s.id, s]));
   const subscribed = myAssignments
     .map((a) => ({ assignment: a, strategy: strategyById.get(a.strategy_id) }))
@@ -49,6 +52,7 @@ export default async function TradingTerminalPage() {
           connection={mt5Connection}
           displayName={identity.display_name}
           demoBalance={DEMO_BALANCE}
+          liveBalance={liveBalance}
         />
 
         <div className="card">
@@ -94,12 +98,20 @@ export default async function TradingTerminalPage() {
         <div className="card">
           <div className="card-head">
             <span className="card-title">Account Equity</span>
-            <span className="badge-pill badge-demo">DEMO</span>
+            {liveBalance.available ? (
+              <span className="badge-pill badge-green">LIVE</span>
+            ) : (
+              <span className="badge-pill badge-demo">DEMO</span>
+            )}
           </div>
-          <div className="stat-value">${DEMO_EQUITY}</div>
+          <div className="stat-value">
+            ${liveBalance.available ? liveBalance.equity?.toFixed(2) : DEMO_EQUITY}
+          </div>
           <div className="stat-sub">
             <span>Free Margin:</span>
-            <span style={{ color: "var(--fg)", fontWeight: 700 }}>${DEMO_FREE_MARGIN}</span>
+            <span style={{ color: "var(--fg)", fontWeight: 700 }}>
+              ${liveBalance.available ? liveBalance.free_margin?.toFixed(2) : DEMO_FREE_MARGIN}
+            </span>
           </div>
         </div>
       </div>
@@ -120,7 +132,12 @@ export default async function TradingTerminalPage() {
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
             {subscribed.map(({ assignment, strategy }) => (
-              <StrategyMarketplaceCard key={assignment.id} strategy={strategy} assignment={assignment} />
+              <StrategyMarketplaceCard
+                key={assignment.id}
+                strategy={strategy}
+                assignment={assignment}
+                mt5Connection={mt5Connection}
+              />
             ))}
           </div>
         )}

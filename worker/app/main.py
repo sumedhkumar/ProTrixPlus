@@ -128,6 +128,9 @@ def main() -> int:
         stop.set()
         for t in threads:
             t.join(timeout=10)
+        close = getattr(adapter, "close", None)
+        if callable(close):
+            close()
     log.info("worker stopped")
     return 0
 
