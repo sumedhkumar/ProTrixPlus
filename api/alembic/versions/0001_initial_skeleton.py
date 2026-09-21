@@ -14,8 +14,11 @@ insert-only (UPDATE / DELETE raise).
 
 from __future__ import annotations
 
+import time
 from collections.abc import Sequence
 
+import psycopg.errors
+import sqlalchemy.exc
 from alembic import op
 
 from protrix_contracts.db import metadata as target_metadata
@@ -45,7 +48,25 @@ DROP FUNCTION IF EXISTS audit_events_block_mutation();
 
 def upgrade() -> None:
     bind = op.get_bind()
-    target_metadata.create_all(bind=bind)
+    # create_all()'s checkfirst is check-then-create, not atomic: something
+    # else creating the same table in between (seen in practice against a
+    # freshly created database on Render - root cause unconfirmed, possibly
+    # Render's health-check-driven restarts overlapping instances) raises
+    # DuplicateTable and aborts create_all partway through. A savepoint scopes
+    # that failure so it doesn't poison the outer migration transaction, and
+    # retrying re-checks what already exists and only creates what's still
+    # missing - it converges once nothing else is concurrently racing us.
+    for attempt in range(10):
+        try:
+            with bind.begin_nested():
+                target_metadata.create_all(bind=bind)
+            break
+        except sqlalchemy.exc.ProgrammingError as exc:
+            if not isinstance(exc.orig, psycopg.errors.DuplicateTable):
+                raise
+            time.sleep(0.5 * (attempt + 1))
+    else:
+        raise RuntimeError("create_all kept hitting DuplicateTable after 10 retries")
     op.execute(_AUDIT_GUARD)
 
 
