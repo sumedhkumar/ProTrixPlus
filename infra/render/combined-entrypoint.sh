@@ -5,6 +5,40 @@
 # processes so a TERM/INT to this script (PID 1) stops both cleanly.
 set -euo pipefail
 
+# Redis is not optional here, and it has no sane default in a container:
+# PROTRIX_REDIS_URL is `sync: false` in render.yaml (the URL is a secret, so the
+# blueprint can't carry it), and when it's unset both api and worker quietly
+# fall back to redis://localhost:6379/0 - where nothing is listening. The worker
+# then burns 60 one-second retries logging a bare "ConnectionError", exits, and
+# takes the api down with it. Check it up front instead, and say so plainly.
+echo "[combined] checking redis..."
+python - <<'PY'
+import os
+import sys
+from urllib.parse import urlparse
+
+from redis import Redis
+
+url = os.environ.get("PROTRIX_REDIS_URL", "").strip()
+if not url:
+    sys.exit(
+        "[combined] PROTRIX_REDIS_URL is not set.\n"
+        "[combined] Render's blueprint marks it `sync: false` because the URL is a\n"
+        "[combined] secret - set it in the service's Environment tab. See step 2 of\n"
+        "[combined] docs/DEPLOY-RENDER.md (create a free Upstash Redis, paste the\n"
+        "[combined] rediss:// 'Redis Connect' URL - the TLS one, not the REST URL)."
+    )
+
+# Never log the URL itself; it carries the password.
+parsed = urlparse(url)
+where = f"{parsed.hostname or '<no host>'}:{parsed.port}" if parsed.port else (parsed.hostname or "<no host>")
+try:
+    Redis.from_url(url, socket_connect_timeout=5).ping()
+except Exception as exc:  # noqa: BLE001
+    sys.exit(f"[combined] redis at {where} did not answer: {exc.__class__.__name__}: {exc}")
+print(f"[combined] redis is up ({where})")
+PY
+
 echo "[combined] waiting for postgres..."
 python - <<'PY'
 import os, time, sys
