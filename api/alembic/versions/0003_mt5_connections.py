@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -24,6 +25,8 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    if inspect(op.get_bind()).has_table("mt5_connections"):
+        return
     op.create_table(
         "mt5_connections",
         sa.Column("id", sa.Uuid(), primary_key=True),

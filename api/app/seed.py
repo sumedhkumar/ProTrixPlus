@@ -18,6 +18,7 @@ from protrix_contracts.db.models import (
 )
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from app.auth import hash_password
 from app.db import get_session_factory
 
 log = logging.getLogger("api.seed")
@@ -32,6 +33,15 @@ FAKE_USERS = [
     ("bob", "USER", "Bob Trader", "bob@example.test"),
     ("carol", "USER", "Carol Trader", "carol@example.test"),
     ("root", "SUPER_ADMIN", "Root Admin", "root@example.test"),
+]
+
+# Password-auth demo profiles surfaced by the login page's "1-Click Demo
+# Profiles" buttons (web/app/login/page.tsx). All share DEMO_PASSWORD there.
+DEMO_PASSWORD = "Demo12345!"
+DEMO_PASSWORD_USERS = [
+    ("demo-alex-vance", "SUPER_ADMIN", "Alex Vance", "alex.vance@protrixplus.test"),
+    ("demo-marcus-sterling", "USER", "Marcus Sterling", "marcus.sterling@apexcapital.co"),
+    ("demo-elena-rostova", "USER", "Elena Rostova", "elena.rostova@quantfund.net"),
 ]
 
 
@@ -71,6 +81,21 @@ def seed() -> None:
                     display_name=name,
                     role=UserRole(role).value,
                     is_active=True,
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+
+        demo_password_hash = hash_password(DEMO_PASSWORD)
+        for slug, role, name, email in DEMO_PASSWORD_USERS:
+            session.execute(
+                pg_insert(User)
+                .values(
+                    id=user_id(slug),
+                    email=email,
+                    display_name=name,
+                    role=UserRole(role).value,
+                    is_active=True,
+                    password_hash=demo_password_hash,
                 )
                 .on_conflict_do_nothing(index_elements=["id"])
             )

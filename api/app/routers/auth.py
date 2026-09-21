@@ -107,12 +107,19 @@ def signup(
     db: Session = Depends(get_db),
     provider: IdentityProvider = Depends(get_identity_provider),
 ) -> AuthResponse:
+    # Every new account starts on a 7-day trial window, same as /signup-trial -
+    # otherwise a direct email/password signup would have no subscription_end
+    # at all, which subscription_status() reads as "never expires".
+    now = datetime.now(UTC)
     user = User(
         email=body.email,
         display_name=body.display_name,
         role=UserRole.USER.value,
         is_active=True,
         password_hash=hash_password(body.password),
+        subscription_package="TRIAL_7D",
+        subscription_start=now,
+        subscription_end=now + timedelta(days=subscriptions.PACKAGE_DURATION_DAYS["TRIAL_7D"]),
     )
     db.add(user)
     try:

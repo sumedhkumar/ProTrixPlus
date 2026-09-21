@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { AuthShell } from "@/components/AuthShell";
 import { TrialSignupForm } from "@/components/TrialSignupForm";
 
 const TRIAL_POINTS = [
@@ -25,24 +26,29 @@ const TRIAL_POINTS = [
 
 export default function TrialPage() {
   return (
+    <AuthShell
+      right={
+        <Link href="/login" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+          Sign In →
+        </Link>
+      }
+    >
     <div className="login-split">
       <div>
         <span className="badge-pill badge-teal">🛡 Free 7-Day Trial</span>
-        <h1 style={{ fontSize: 36, lineHeight: 1.15, margin: "16px 0" }}>
-          Try ProTrixPlus free for 7 days.
-        </h1>
-        <p style={{ color: "var(--muted)", fontSize: 15, marginBottom: 28, maxWidth: 440 }}>
+        <h1 className="hero-heading">Try ProTrixPlus free for 7 days.</h1>
+        <p className="hero-copy">
           No password to create, no card required. We&apos;ll email you a temporary password -
           you&apos;ll set your own the first time you log in.
         </p>
 
-        <div style={{ display: "grid", gap: 12, marginBottom: 24 }}>
+        <div className="feature-list">
           {TRIAL_POINTS.map((f) => (
-            <div key={f.title} className="card" style={{ display: "flex", gap: 14, padding: 16 }}>
-              <div className={`icon-badge ${f.color}`}>{f.icon}</div>
+            <div key={f.title} className="feature-row">
+              <div className={`feature-icon ${f.color}`}>{f.icon}</div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{f.title}</div>
-                <div style={{ color: "var(--muted)", fontSize: 13 }}>{f.desc}</div>
+                <div className="feature-row-title">{f.title}</div>
+                <div className="feature-row-desc">{f.desc}</div>
               </div>
             </div>
           ))}
@@ -53,9 +59,10 @@ export default function TrialPage() {
         </Link>
       </div>
 
-      <div className="card" style={{ padding: 28 }}>
+      <div className="form-panel">
         <TrialSignupForm />
       </div>
     </div>
+    </AuthShell>
   );
 }

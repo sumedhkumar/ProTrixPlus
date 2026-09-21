@@ -21,15 +21,22 @@ const FEATURES = [
   },
 ];
 
+const HOW_IT_WORKS: [string, string, string][] = [
+  ["1", "Start your free trial", "Sign up with your name, email, and phone - no password to set up front."],
+  ["2", "Get your login by email", "We email you a temporary password to sign in with."],
+  ["3", "Set your own password", "First login asks you to choose a permanent password."],
+  ["4", "Trade with confidence", "Your dashboard shows live execution status and your subscription countdown."],
+];
+
 export function LandingHero() {
   return (
     <section className="landing-hero">
       <div>
         <span className="badge-pill badge-teal">🛡 AI-Evolved Strategy Automation</span>
-        <h1 style={{ fontSize: 42, lineHeight: 1.15, margin: "16px 0" }}>
+        <h1 className="hero-heading" style={{ fontSize: 42 }}>
           Automated MT5 Execution for Modern Quant Traders.
         </h1>
-        <p style={{ color: "var(--muted)", fontSize: 15, marginBottom: 28, maxWidth: 480 }}>
+        <p className="hero-copy" style={{ marginBottom: 28 }}>
           ProTrixPlus routes TradingView signals to your MetaTrader 5 account with per-client
           lot-size entitlement, execution tracking, and admin oversight - start with a free 7-day
           trial, no card required.
@@ -55,51 +62,31 @@ export function LandingHero() {
           </Link>
         </div>
 
-        <div style={{ display: "grid", gap: 12 }}>
+        <div className="feature-list" style={{ marginBottom: 0 }}>
           {FEATURES.map((f) => (
-            <div key={f.title} className="card" style={{ display: "flex", gap: 14, padding: 16 }}>
-              <div className={`icon-badge ${f.color}`}>{f.icon}</div>
+            <div key={f.title} className="feature-row">
+              <div className={`feature-icon ${f.color}`}>{f.icon}</div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{f.title}</div>
-                <div style={{ color: "var(--muted)", fontSize: 13 }}>{f.desc}</div>
+                <div className="feature-row-title">{f.title}</div>
+                <div className="feature-row-desc">{f.desc}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="card" style={{ padding: 24 }}>
-        <div className="card-head">
-          <span className="card-title">How it works</span>
-        </div>
-        <div style={{ display: "grid", gap: 18 }}>
-          {[
-            ["1", "Start your free trial", "Sign up with your name, email, and phone - no password to set up front."],
-            ["2", "Get your login by email", "We email you a temporary password to sign in with."],
-            ["3", "Set your own password", "First login asks you to choose a permanent password."],
-            ["4", "Trade with confidence", "Your dashboard shows live execution status and your subscription countdown."],
-          ].map(([n, title, desc]) => (
-            <div key={n} style={{ display: "flex", gap: 14 }}>
-              <div
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: "50%",
-                  background: "var(--teal-dim)",
-                  color: "var(--teal)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 800,
-                  fontSize: 13,
-                  flex: "none",
-                }}
-              >
-                {n}
+      <div className="form-panel">
+        <div className="panel-heading">How it works</div>
+        <div className="steps-list">
+          {HOW_IT_WORKS.map(([n, title, desc], i) => (
+            <div key={n} className="step-row">
+              <div className="step-rail">
+                <span className="step-num">{n}</span>
+                {i < HOW_IT_WORKS.length - 1 ? <span className="step-line" /> : null}
               </div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
-                <div style={{ color: "var(--muted)", fontSize: 13 }}>{desc}</div>
+                <div className="step-title">{title}</div>
+                <div className="step-desc">{desc}</div>
               </div>
             </div>
           ))}

@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 import { AppFooter } from "@/components/AppFooter";
+import { BrandMark } from "@/components/BrandMark";
+import { authFont } from "@/lib/fonts";
 
 import { FaqSection } from "./FaqSection";
 import { LandingHero } from "./LandingHero";
@@ -17,18 +19,11 @@ const NAV_LINKS: [string, string][] = [
 
 export function LandingPage() {
   return (
-    <>
+    <div className={`auth-shell ${authFont.variable}`}>
+      <div className="auth-shell-glow" aria-hidden />
       <header className="landing-nav">
         <div className="landing-nav-inner">
-          <div className="brand">
-            <div className="brand-mark">⚡</div>
-            <div className="brand-text">
-              <h1>
-                ProTrixPlus <span className="badge-pill badge-gradient">AI-EVOLVED</span>
-              </h1>
-              <p>TradingView to MT5 Multi-User AI Router</p>
-            </div>
-          </div>
+          <BrandMark />
           <div style={{ flex: 1 }} />
           <nav style={{ display: "flex", gap: 20 }}>
             {NAV_LINKS.map(([href, label]) => (
@@ -65,6 +60,6 @@ export function LandingPage() {
       </section>
 
       <AppFooter />
-    </>
+    </div>
   );
 }

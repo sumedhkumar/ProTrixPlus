@@ -1,7 +1,9 @@
+import { AuthShell } from "@/components/AuthShell";
 import { PaymentInstructions } from "@/components/PaymentInstructions";
 import { SubscribeForm } from "@/components/SubscribeForm";
 import { apiFetch, type Identity, type PaymentInstructionsView } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { homePathForRole } from "@/lib/roles";
 
 const PACKAGE_KEYS = ["PLAN_3M", "PLAN_6M", "PLAN_12M"];
 
@@ -32,18 +34,28 @@ export default async function SubscribePage({
     : "PLAN_3M";
 
   return (
+    <AuthShell
+      right={
+        <a
+          href={identity ? homePathForRole(identity.role) : "/login"}
+          style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}
+        >
+          {identity ? "Back to dashboard →" : "Sign In →"}
+        </a>
+      }
+    >
     <div className="login-split">
       <div>
         <span className="badge-pill badge-teal">💳 Payment Confirmation</span>
-        <h1 style={{ fontSize: 34, lineHeight: 1.15, margin: "16px 0" }}>
+        <h1 className="hero-heading" style={{ fontSize: 34 }}>
           {searchParams.renew ? "Renew your subscription" : "Activate a paid plan"}
         </h1>
-        <p style={{ color: "var(--muted)", fontSize: 15, marginBottom: 20, maxWidth: 440 }}>
+        <p className="hero-copy" style={{ marginBottom: 28, maxWidth: 440 }}>
           There&apos;s no payment gateway yet - transfer payment to ProTrixPlus, then submit your
           transaction / UTR reference below.
         </p>
         {identity?.subscription?.hard_blocked ? (
-          <div className="card" style={{ borderColor: "rgba(240,87,107,0.35)", marginBottom: 20 }}>
+          <div className="card" style={{ borderColor: "rgba(240,87,107,0.35)", marginBottom: 24 }}>
             <p style={{ fontSize: 13, color: "var(--bad)", margin: 0 }}>
               Your subscription has expired. Submit a renewal below to restore dashboard access.
             </p>
@@ -52,33 +64,18 @@ export default async function SubscribePage({
 
         <PaymentInstructions instructions={instructions} />
 
-        <div className="card" style={{ padding: 24 }}>
-          <div className="card-head">
-            <span className="card-title">What happens next</span>
-          </div>
-          <div style={{ display: "grid", gap: 18 }}>
-            {STEPS.map(([n, title, desc]) => (
-              <div key={n} style={{ display: "flex", gap: 14 }}>
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: "var(--teal-dim)",
-                    color: "var(--teal)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontWeight: 800,
-                    fontSize: 13,
-                    flex: "none",
-                  }}
-                >
-                  {n}
+        <div className="inline-divider">
+          <span className="inline-divider-label">What happens next</span>
+          <div className="steps-list">
+            {STEPS.map(([n, title, desc], i) => (
+              <div key={n} className="step-row">
+                <div className="step-rail">
+                  <span className="step-num">{n}</span>
+                  {i < STEPS.length - 1 ? <span className="step-line" /> : null}
                 </div>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
-                  <div style={{ color: "var(--muted)", fontSize: 13 }}>{desc}</div>
+                  <div className="step-title">{title}</div>
+                  <div className="step-desc">{desc}</div>
                 </div>
               </div>
             ))}
@@ -86,12 +83,13 @@ export default async function SubscribePage({
         </div>
       </div>
 
-      <div className="card" style={{ padding: 28 }}>
+      <div className="form-panel">
         <SubscribeForm
           initialPackage={initialPackage}
           identity={identity ? { name: identity.display_name, email: identity.email } : null}
         />
       </div>
     </div>
+    </AuthShell>
   );
 }

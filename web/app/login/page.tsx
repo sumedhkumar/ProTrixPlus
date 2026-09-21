@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AuthShell } from "@/components/AuthShell";
+
 type Role = "USER" | "SUPER_ADMIN";
 type AuthMode = "login" | "signup";
 
@@ -94,34 +96,36 @@ export default function LoginPage() {
   }
 
   return (
+    <AuthShell
+      right={
+        <Link href="/trial" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+          Start Free Trial →
+        </Link>
+      }
+    >
     <div className="login-split">
       <div>
         <span className="badge-pill badge-teal">🛡 Multi-User Fan-Out Architecture</span>
-        <h1 style={{ fontSize: 40, lineHeight: 1.15, margin: "16px 0" }}>
-          Automated MT5 Execution for Modern Quant Traders.
-        </h1>
-        <p style={{ color: "var(--muted)", fontSize: 15, marginBottom: 28, maxWidth: 480 }}>
+        <h1 className="hero-heading">Automated MT5 Execution for Modern Quant Traders.</h1>
+        <p className="hero-copy">
           Connect TradingView alerts to multiple client MT5 accounts, with per-client lot-size
           entitlement and admin-controlled strategy access.
         </p>
 
-        <div style={{ display: "grid", gap: 12, marginBottom: 28 }}>
+        <div className="feature-list">
           {FEATURES.map((f) => (
-            <div key={f.title} className="card" style={{ display: "flex", gap: 14, padding: 16 }}>
-              <div className={`icon-badge ${f.color}`}>{f.icon}</div>
+            <div key={f.title} className="feature-row">
+              <div className={`feature-icon ${f.color}`}>{f.icon}</div>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{f.title}</div>
-                <div style={{ color: "var(--muted)", fontSize: 13 }}>{f.desc}</div>
+                <div className="feature-row-title">{f.title}</div>
+                <div className="feature-row-desc">{f.desc}</div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>✨ 1-Click Demo Profiles</span>
-            <span style={{ color: "var(--dim)", fontSize: 12 }}>Real accounts, instant sign-in</span>
-          </div>
+        <div className="inline-divider">
+          <span className="inline-divider-label">✨ 1-Click Demo Profiles - real accounts, instant sign-in</span>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {DEMO_PROFILES.map((p) => (
               <button
@@ -139,7 +143,7 @@ export default function LoginPage() {
         </div>
       </div>
 
-      <div className="card" style={{ padding: 28 }}>
+      <div className="form-panel">
         <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
           <button
             type="button"
@@ -274,5 +278,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+    </AuthShell>
   );
 }
