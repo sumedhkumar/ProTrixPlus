@@ -1,5 +1,5 @@
-# Render Blueprint for the api+worker+db half of the free, temporary deploy.
-# `web` (Next.js) deploys separately to Vercel - see docs/DEPLOY-VERCEL.md.
+# Render Blueprint for the whole free, temporary deploy: api+worker, web and db.
+# Everything runs on Render; there is no Vercel half any more.
 # Usage: Render dashboard -> New -> Blueprint -> pick this repo -> it reads this file.
 # See docs/DEPLOY-RENDER.md for the full walkthrough (Upstash Redis setup etc.).
 #
@@ -56,7 +56,10 @@ services:
       - key: PROTRIX_EMAIL_BACKEND
         value: mock
       - key: PROTRIX_FRONTEND_BASE_URL
-        value: https://protrixplus.vercel.app # update after your first Vercel deploy if the URL differs
+        # Only used to build password-reset links (api/app/routers/auth.py).
+        # Must match the web service's URL below; Render appends a suffix if
+        # the name is taken, so check the real URL after the first deploy.
+        value: https://protrixplus-web.onrender.com
       - key: PROTRIX_METAAPI_TOKEN
         value: ""
       # worker-only settings (same container, see combined-entrypoint.sh)
@@ -72,3 +75,23 @@ services:
         value: "260910"
       - key: PROTRIX_METAAPI_TIMEOUT_SECONDS
         value: "30"
+
+  # Next.js frontend. The browser never calls the api directly - every request
+  # goes to this server, which forwards it (web/lib/proxy.ts, web/lib/api.ts)
+  # carrying the httpOnly session cookie. That is why the api's CORS allowlist
+  # is still just localhost:3000 and nothing here needs to change it.
+  - type: web
+    name: protrixplus-web
+    runtime: docker
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /login # "/" redirects; /login renders without a session
+    envVars:
+      - key: PROTRIX_API_URL
+        # Read at runtime by the standalone server, not baked into the image -
+        # see the comment in web/next.config.mjs. Points at the api service
+        # above; update if that service's URL differs.
+        value: https://protrixplus-api.onrender.com
+      - key: NODE_ENV
+        value: production

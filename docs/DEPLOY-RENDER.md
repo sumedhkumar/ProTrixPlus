@@ -1,9 +1,9 @@
-# Free, temporary deploy: api + worker + Postgres on Render
+# Free, temporary deploy: the whole stack on Render
 
-This deploys the api and worker (Postgres too) to Render's free tier, plus a
-free Upstash Redis (Render doesn't offer free Redis). `web` (Next.js) deploys
-separately to Vercel — see [docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md). Do this
-doc first: Vercel's `web` needs the api's URL as a build-time env var.
+This deploys everything to Render's free tier — api, worker, the `web`
+(Next.js) frontend and Postgres — plus a free Upstash Redis, since Render
+doesn't offer free Redis. There is no Vercel half any more; `render.yaml`
+declares both web services, so one blueprint apply brings up the lot.
 
 Everything here uses mock adapters/identity, same as local dev — no real
 credentials needed.
@@ -20,7 +20,8 @@ separate Dockerfile from the ones `infra/docker-compose.yml` uses.
 **Free-tier caveats (fine for a temporary demo, not for anything long-lived):**
 - `protrixplus-api` spins down after ~15 min idle; the next request wakes it
   up (10-50s cold start, and it restarts the worker loop too since they're in
-  the same container).
+  the same container). `protrixplus-web` spins down the same way, so a cold
+  visit can pay both wake-ups in series — the page load blocks on the api.
 - The free Postgres database is deleted 30 days after creation (14-day grace
   period to upgrade before that happens).
 
@@ -66,12 +67,38 @@ To test the signal -> execution flow, adapt
 `PROTRIX_WEBHOOK_SHARED_SECRET` value Render generated (Environment tab on
 `protrixplus-api`), instead of `localhost:8000`.
 
-## 5. After web is deployed on Vercel
+## 5. The web service
 
-Update `PROTRIX_FRONTEND_BASE_URL` on `protrixplus-api` (Environment tab) to
-your actual Vercel URL if it differs from the `render.yaml` default
-(`https://protrixplus.vercel.app`) — used to build the password-reset link in
-mock-sent emails, not load-bearing for anything else.
+`protrixplus-web` is in the same blueprint, built from `web/Dockerfile`, so it
+comes up with everything else. Two things wire it to the api:
+
+- **`PROTRIX_API_URL`** on `protrixplus-web` — the api's URL
+  (`https://protrixplus-api.onrender.com`). The browser never calls the api
+  directly: every request goes to the Next.js server, which forwards it
+  server-side (`web/lib/proxy.ts`, `web/lib/api.ts`) carrying the httpOnly
+  session cookie. That is why the api's CORS allowlist is still just
+  `localhost:3000` and doesn't need the deployed web origin.
+- **`PROTRIX_FRONTEND_BASE_URL`** on `protrixplus-api` — the web URL
+  (`https://protrixplus-web.onrender.com`). Only used to build the
+  password-reset link in mock-sent emails; not load-bearing for anything else.
+
+If Render appended a suffix to either service name, fix both values to the real
+URLs in the Environment tab — they point at each other.
+
+`PROTRIX_API_URL` is read **at runtime**, not baked into the image. That is
+deliberate: `next.config.mjs` used to expose it through Next's `env:` key,
+which inlines the value at *build* time, so an image built once would keep
+calling the builder's api URL and silently ignore the variable set on the
+service. It is server-only config and the only client imports of `lib/api` are
+`import type` (erased at compile time), so the standalone server just reads
+`process.env` instead. Verify with:
+
+```
+curl -fsS -o /dev/null -w '%{http_code}\n' https://protrixplus-web.onrender.com/login
+```
+
+`/login` is the health-check path because `/` redirects and `/login` renders
+without a session.
 
 ## Tearing it down
 
