@@ -22,9 +22,8 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /health
-    envVarGroups:
-      - protrixplus-shared
     envVars:
+      - fromGroup: protrixplus-shared
       - key: PROTRIX_APP_ENV
         value: prod
       - key: PROTRIX_LOG_LEVEL
@@ -60,9 +59,8 @@ services:
     dockerfilePath: ./worker/Dockerfile
     dockerContext: .
     plan: free
-    envVarGroups:
-      - protrixplus-shared
     envVars:
+      - fromGroup: protrixplus-shared
       - key: PROTRIX_APP_ENV
         value: prod
       - key: PROTRIX_LOG_LEVEL
@@ -97,8 +95,7 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /login
-    envVarGroups:
-      - protrixplus-shared
     envVars:
+      - fromGroup: protrixplus-shared
       - key: PROTRIX_API_URL
         value: https://protrixplus-api.onrender.com
