@@ -46,18 +46,7 @@ export function LandingHero() {
           <Link href="/trial" className="btn-primary" style={{ padding: "12px 20px" }}>
             Start Free 7-Day Trial →
           </Link>
-          <Link
-            href="/login"
-            style={{
-              padding: "12px 20px",
-              borderRadius: 8,
-              border: "1px solid var(--border)",
-              color: "var(--fg)",
-              fontWeight: 600,
-              fontSize: 14,
-              textDecoration: "none",
-            }}
-          >
+          <Link href="/login" className="btn-ghost" style={{ padding: "12px 20px", fontSize: 14 }}>
             Sign In
           </Link>
         </div>

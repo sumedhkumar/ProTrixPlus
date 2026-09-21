@@ -98,7 +98,7 @@ export default function LoginPage() {
   return (
     <AuthShell
       right={
-        <Link href="/trial" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+        <Link href="/trial" className="btn-ghost" style={{ padding: "8px 16px" }}>
           Start Free Trial →
         </Link>
       }
@@ -144,20 +144,20 @@ export default function LoginPage() {
       </div>
 
       <div className="form-panel">
-        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+        <div className="auth-tab-group" style={{ marginBottom: 20 }}>
           <button
             type="button"
             className={`auth-tab ${authMode === "login" ? "active" : ""}`}
             onClick={() => setAuthMode("login")}
           >
-            🔒 Sign In
+            ▸ Sign In
           </button>
           <button
             type="button"
             className={`auth-tab ${authMode === "signup" ? "active" : ""}`}
             onClick={() => setAuthMode("signup")}
           >
-            👤 Create Account
+            + Create Account
           </button>
         </div>
 
@@ -184,7 +184,7 @@ export default function LoginPage() {
 
           <div>
             <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-              ✉ Email
+              Email
             </label>
             <input
               type="email"
@@ -198,11 +198,8 @@ export default function LoginPage() {
 
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <label style={{ fontSize: 12, color: "var(--muted)" }}>🔒 Password</label>
-              <Link
-                href="/forgot-password"
-                style={{ fontSize: 12, color: "var(--accent)", textDecoration: "none" }}
-              >
+              <label style={{ fontSize: 12, color: "var(--muted)" }}>Password</label>
+              <Link href="/forgot-password" className="card-link">
                 Forgot password?
               </Link>
             </div>
@@ -213,7 +210,7 @@ export default function LoginPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={8}
                 required
-                style={{ width: "100%", paddingRight: 40 }}
+                style={{ width: "100%", paddingRight: 56 }}
               />
               <button
                 type="button"
@@ -224,10 +221,12 @@ export default function LoginPage() {
                   top: 4,
                   background: "none",
                   color: "var(--dim)",
-                  padding: 6,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: "6px 8px",
                 }}
               >
-                {showPassword ? "🙈" : "👁"}
+                {showPassword ? "Hide" : "Show"}
               </button>
             </div>
           </div>
@@ -258,7 +257,7 @@ export default function LoginPage() {
         {authMode === "signup" ? (
           <p style={{ color: "var(--dim)", fontSize: 12, marginTop: 12 }}>
             Want a free 7-day trial instead?{" "}
-            <Link href="/trial" style={{ color: "var(--accent)", textDecoration: "none" }}>
+            <Link href="/trial" className="card-link">
               Start here →
             </Link>
           </p>

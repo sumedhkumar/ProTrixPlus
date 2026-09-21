@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { AppFooter } from "@/components/AppFooter";
 import { BrandMark } from "@/components/BrandMark";
-import { authFont } from "@/lib/fonts";
 
 import { FaqSection } from "./FaqSection";
 import { LandingHero } from "./LandingHero";
@@ -19,7 +18,7 @@ const NAV_LINKS: [string, string][] = [
 
 export function LandingPage() {
   return (
-    <div className={`auth-shell ${authFont.variable}`}>
+    <div className="auth-shell">
       <div className="auth-shell-glow" aria-hidden />
       <header className="landing-nav">
         <div className="landing-nav-inner">
@@ -36,7 +35,7 @@ export function LandingPage() {
               </a>
             ))}
           </nav>
-          <Link href="/login" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+          <Link href="/login" className="btn-ghost" style={{ padding: "8px 16px" }}>
             Sign In
           </Link>
           <Link href="/trial" className="btn-primary" style={{ padding: "8px 16px" }}>

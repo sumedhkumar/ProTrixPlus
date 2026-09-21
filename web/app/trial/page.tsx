@@ -28,7 +28,7 @@ export default function TrialPage() {
   return (
     <AuthShell
       right={
-        <Link href="/login" style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}>
+        <Link href="/login" className="btn-ghost" style={{ padding: "8px 16px" }}>
           Sign In →
         </Link>
       }

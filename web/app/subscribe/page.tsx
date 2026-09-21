@@ -38,7 +38,8 @@ export default async function SubscribePage({
       right={
         <a
           href={identity ? homePathForRole(identity.role) : "/login"}
-          style={{ fontSize: 13, fontWeight: 600, textDecoration: "none" }}
+          className="btn-ghost"
+          style={{ padding: "8px 16px" }}
         >
           {identity ? "Back to dashboard →" : "Sign In →"}
         </a>
