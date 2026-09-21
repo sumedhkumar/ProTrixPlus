@@ -50,13 +50,19 @@ class Settings(BaseSettings):
     # Outbound email (trial temp-password, payment-proof admin notification,
     # forgot-password reset link). "mock" (default) never sends real mail -
     # local/CI safety. "smtp" is Gmail by default (see infra/.env.example).
-    email_backend: Literal["smtp", "mock"] = "mock"
+    # "brevo" sends over HTTPS instead, which is what production uses: Render
+    # blocks outbound SMTP ports on free web services, so "smtp" cannot
+    # deliver from there. Both honour smtp_from_name / smtp_from_address.
+    email_backend: Literal["smtp", "brevo", "mock"] = "mock"
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
     smtp_from_name: str = "ProTrixPlus"
     smtp_from_address: str = ""
+    # Brevo API key (email_backend="brevo"). The sender address above must be
+    # verified under Senders in the Brevo dashboard or sends are rejected.
+    brevo_api_key: SecretStr = SecretStr("")
     # Where payment-proof (UTR) submissions get emailed for human review.
     admin_notify_email: str = ""
     # Used to build the password-reset link sent to a user's inbox.
@@ -90,6 +96,7 @@ class Settings(BaseSettings):
             self.webhook_shared_secret.get_secret_value(),
             self.tradingview_webhook_secret.get_secret_value(),
             self.smtp_password.get_secret_value(),
+            self.brevo_api_key.get_secret_value(),
             self.metaapi_token.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.

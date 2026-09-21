@@ -54,7 +54,23 @@ services:
       - key: PROTRIX_DEV_JWT_ISSUER
         value: protrixplus-dev-identity
       - key: PROTRIX_EMAIL_BACKEND
-        value: mock
+        # Not "smtp": Render blocks outbound traffic to ports 25/465/587 on
+        # free web services, so Gmail SMTP cannot deliver from here. Brevo
+        # goes out over HTTPS on 443 instead. Upgrading this service to a
+        # paid instance type would re-allow 465/587.
+        value: brevo
+      - key: PROTRIX_BREVO_API_KEY
+        # Paste in the Render dashboard - it must not live in this committed
+        # file. PROTRIX_SMTP_FROM_ADDRESS below has to be verified under
+        # Senders in Brevo or every send is rejected.
+        sync: false
+      - key: PROTRIX_SMTP_FROM_NAME
+        value: ProTrixPlus
+      - key: PROTRIX_SMTP_FROM_ADDRESS
+        value: protrixplus@gmail.com
+      - key: PROTRIX_ADMIN_NOTIFY_EMAIL
+        # Where payment-proof (UTR) submissions get emailed for review.
+        value: protrixplus@gmail.com
       - key: PROTRIX_FRONTEND_BASE_URL
         # Only used to build password-reset links (api/app/routers/auth.py).
         # Must match the web service's URL below; Render appends a suffix if
