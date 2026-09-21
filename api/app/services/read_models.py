@@ -77,6 +77,7 @@ def list_executions(
                 "computed_lot": format(intent.computed_lot, "f"),
                 "adapter": ex.adapter,
                 "state": ex.state,
+                "last_error": ex.last_error,
                 "ticket_id": ex.ticket_id,
                 "deal_id": ex.deal_id,
                 "reconcile_count": ex.reconcile_count,

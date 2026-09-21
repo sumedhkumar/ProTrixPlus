@@ -18,8 +18,14 @@ from protrix_contracts.db.models import Mt5Connection, Mt5ConnectionStatus, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services import metaapi_client
+
 
 class NotFoundError(Exception):
+    pass
+
+
+class MetaApiNotConfiguredError(Exception):
     pass
 
 
@@ -31,6 +37,8 @@ def _dict(c: Mt5Connection) -> dict[str, Any]:
         "status": c.status,
         "last_checked_at": c.last_checked_at.isoformat() if c.last_checked_at else None,
         "last_error": c.last_error,
+        "metaapi_account_id": c.metaapi_account_id,
+        "metaapi_region": c.metaapi_region,
     }
 
 
@@ -66,23 +74,84 @@ def set_my_connection(
     return _dict(conn)
 
 
-def check_connection(session: Session, user_id: str) -> dict[str, Any]:
-    """Stub: no real MetaApi wiring exists yet. Always PENDING, never a fake
-    CONNECTED. See module docstring."""
+def check_connection(session: Session, user_id: str, *, metaapi_token: str = "") -> dict[str, Any]:
+    """Real check when a MetaApi account is attached; an honest PENDING stub
+    (never a fabricated CONNECTED) when it isn't yet."""
     conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
     if conn is None:
         raise NotFoundError("no MT5 connection configured yet")
 
-    conn.status = Mt5ConnectionStatus.PENDING.value
+    if conn.metaapi_account_id and metaapi_token:
+        try:
+            status = metaapi_client.get_account_status(
+                token=metaapi_token, account_id=conn.metaapi_account_id
+            )
+        except metaapi_client.MetaApiError as exc:
+            conn.status = Mt5ConnectionStatus.ERROR.value
+            conn.last_error = str(exc)
+        else:
+            connection_status = status.get("connectionStatus")
+            if connection_status == "CONNECTED":
+                conn.status = Mt5ConnectionStatus.CONNECTED.value
+                conn.last_error = None
+            else:
+                conn.status = Mt5ConnectionStatus.PENDING.value
+                conn.last_error = (
+                    f"MetaApi reports state={status.get('state')}, "
+                    f"connectionStatus={connection_status} - waiting for the client to finish "
+                    "entering their MT5 login/password via the configuration link."
+                )
+    else:
+        conn.status = Mt5ConnectionStatus.PENDING.value
+        conn.last_error = (
+            "No MetaApi account attached yet - use 'Connect via MetaApi' to generate a "
+            "secure setup link, or an admin can attach an existing account id."
+        )
+
     conn.last_checked_at = datetime.now(UTC)
-    conn.last_error = (
-        "MetaApi.cloud integration not yet configured for this deployment "
-        "(no API key wired in) - connection details are stored but not "
-        "actually verified against a broker yet."
-    )
     session.commit()
     session.refresh(conn)
     return _dict(conn)
+
+
+def start_self_service_link(
+    session: Session, user_id: str, *, metaapi_token: str, default_region: str
+) -> dict[str, Any]:
+    """Real, self-service MetaApi onboarding: the client never types their
+    MT5 password into ProTrixPlus, or hands it to an admin. If this
+    connection doesn't have a MetaApi account yet, create one with no
+    login/password (MetaApi supports this explicitly - the client supplies
+    credentials later, directly to MetaApi). Then generate a fresh
+    configuration link either way - safe to call again if the first link
+    expired or the client wants to re-enter their password.
+    """
+    conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
+    if conn is None:
+        raise NotFoundError("set your broker server first")
+    if not metaapi_token:
+        raise MetaApiNotConfiguredError("MetaApi is not configured on this deployment")
+
+    if not conn.metaapi_account_id:
+        account = metaapi_client.create_account(
+            token=metaapi_token,
+            name=f"protrixplus-{user_id}",
+            server=conn.broker_server,
+            region=conn.metaapi_region or default_region,
+            magic=0,
+        )
+        conn.metaapi_account_id = str(account["id"])
+        conn.metaapi_region = conn.metaapi_region or default_region
+        session.commit()
+        session.refresh(conn)
+
+    link = metaapi_client.create_configuration_link(
+        token=metaapi_token, account_id=conn.metaapi_account_id
+    )
+    conn.status = Mt5ConnectionStatus.PENDING.value
+    conn.last_error = "Waiting for the client to complete setup via the configuration link."
+    conn.last_checked_at = datetime.now(UTC)
+    session.commit()
+    return {"configuration_link": link, "metaapi_account_id": conn.metaapi_account_id}
 
 
 def disconnect_my_connection(session: Session, user_id: str) -> None:
@@ -91,6 +160,57 @@ def disconnect_my_connection(session: Session, user_id: str) -> None:
         raise NotFoundError("no MT5 connection configured yet")
     session.delete(conn)
     session.commit()
+
+
+def get_my_live_balance(session: Session, user_id: str, *, metaapi_token: str) -> dict[str, Any]:
+    """Real balance/equity for the caller's own connected account.
+
+    Always returns a dict describing *why* if it can't - never a fabricated
+    number. ``available`` is False when there's no connection, no MetaApi
+    account attached yet, or MetaApi itself failed/timed out.
+    """
+    conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
+    if conn is None or not conn.metaapi_account_id or not conn.metaapi_region:
+        return {
+            "available": False,
+            "reason": "no MetaApi account attached to your MT5 connection yet",
+        }
+
+    if not metaapi_token:
+        return {"available": False, "reason": "MetaApi is not configured on this deployment"}
+
+    try:
+        info = metaapi_client.get_account_information(
+            token=metaapi_token, region=conn.metaapi_region, account_id=conn.metaapi_account_id
+        )
+    except metaapi_client.MetaApiError as exc:
+        return {"available": False, "reason": str(exc)}
+
+    return {
+        "available": True,
+        "balance": info.get("balance"),
+        "equity": info.get("equity"),
+        "free_margin": info.get("freeMargin"),
+        "currency": info.get("currency"),
+        "leverage": info.get("leverage"),
+        "trade_mode": info.get("type"),
+    }
+
+
+def admin_set_metaapi_account(
+    session: Session, connection_id: str, *, metaapi_account_id: str, metaapi_region: str
+) -> dict[str, Any]:
+    """Attach the MetaApi side of a client's MT5 connection (admin-only -
+    these values come from MetaApi's own dashboard after the admin adds the
+    client's account there, not from the client)."""
+    conn = session.get(Mt5Connection, uuid.UUID(connection_id))
+    if conn is None:
+        raise NotFoundError(f"mt5 connection {connection_id} not found")
+    conn.metaapi_account_id = metaapi_account_id
+    conn.metaapi_region = metaapi_region
+    session.commit()
+    session.refresh(conn)
+    return _dict(conn)
 
 
 def admin_list_connections(session: Session) -> list[dict[str, Any]]:

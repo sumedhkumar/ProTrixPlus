@@ -19,7 +19,7 @@ from app.db import get_db
 from app.email import EmailSender, get_email_sender
 from app.identity import Claims
 from app.security import current_claims, require_role
-from app.services import marketplace, mt5_connection, notifications, payments, read_models
+from app.services import alerts, marketplace, mt5_connection, notifications, payments, read_models
 
 router = APIRouter(
     prefix="/api/v1/admin",
@@ -48,6 +48,26 @@ def admin_mt5_connections(db: Session = Depends(get_db)) -> list[dict[str, Any]]
     return mt5_connection.admin_list_connections(db)
 
 
+class SetMetaApiAccountRequest(BaseModel):
+    metaapi_account_id: str = Field(min_length=1, max_length=64)
+    metaapi_region: str = Field(min_length=1, max_length=32)
+
+
+@router.patch("/mt5-connections/{connection_id}/metaapi")
+def admin_set_metaapi_account(
+    connection_id: str, body: SetMetaApiAccountRequest, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    try:
+        return mt5_connection.admin_set_metaapi_account(
+            db,
+            connection_id,
+            metaapi_account_id=body.metaapi_account_id,
+            metaapi_region=body.metaapi_region,
+        )
+    except mt5_connection.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 # --------------------------------------------------------------------------
 # Strategy catalog (PRD 4.3, 5.3, 6)
 # --------------------------------------------------------------------------
@@ -63,6 +83,9 @@ class StrategyCreateRequest(BaseModel):
     price: Decimal | None = Field(default=None, ge=0)
     profit_share_percent: Decimal | None = Field(default=None, ge=0, le=100)
     base_lot: Decimal | None = Field(default=None, gt=0)
+    win_rate: Decimal | None = Field(default=None, ge=0, le=100)
+    max_drawdown: Decimal | None = Field(default=None, ge=0, le=100)
+    description_short: str | None = Field(default=None, max_length=240)
 
 
 class StrategyUpdateRequest(BaseModel):
@@ -73,6 +96,9 @@ class StrategyUpdateRequest(BaseModel):
     price: Decimal | None = Field(default=None, ge=0)
     profit_share_percent: Decimal | None = Field(default=None, ge=0, le=100)
     base_lot: Decimal | None = Field(default=None, gt=0)
+    win_rate: Decimal | None = Field(default=None, ge=0, le=100)
+    max_drawdown: Decimal | None = Field(default=None, ge=0, le=100)
+    description_short: str | None = Field(default=None, max_length=240)
     is_active: bool | None = None
 
 
@@ -97,6 +123,9 @@ def admin_create_strategy(
             price=body.price,
             profit_share_percent=body.profit_share_percent,
             base_lot=body.base_lot,
+            win_rate=body.win_rate,
+            max_drawdown=body.max_drawdown,
+            description_short=body.description_short,
         ),
     )
 
@@ -122,6 +151,86 @@ def admin_alert_config(strategy_id: str, db: Session = Depends(get_db)) -> dict[
     try:
         return marketplace.alert_config_for_strategy(db, strategy_id)
     except marketplace.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# --------------------------------------------------------------------------
+# Alert catalog (Feature 1: capture + changelog) + bundling into a strategy
+# (Feature 2). Alerts are admin-authored here, then pasted into TradingView -
+# see app/services/alerts.py's module docstring for why.
+# --------------------------------------------------------------------------
+
+
+class AlertCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    symbol: str = Field(min_length=1, max_length=32)
+    lot_size: Decimal = Field(gt=0)
+    timeframe: str = Field(min_length=1, max_length=8)
+
+
+class AlertUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    symbol: str | None = Field(default=None, min_length=1, max_length=32)
+    lot_size: Decimal | None = Field(default=None, gt=0)
+    timeframe: str | None = Field(default=None, min_length=1, max_length=8)
+
+
+class BundleAlertsRequest(BaseModel):
+    alert_ids: list[str]
+
+
+@router.get("/alerts")
+def admin_list_alerts(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return alerts.admin_list_alerts(db)
+
+
+@router.post("/alerts", status_code=status.HTTP_201_CREATED)
+def admin_create_alert(
+    body: AlertCreateRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    return alerts.admin_create_alert(
+        db,
+        alerts.AlertInput(
+            name=body.name, symbol=body.symbol, lot_size=body.lot_size, timeframe=body.timeframe
+        ),
+        actor=claims.subject,
+    )
+
+
+@router.patch("/alerts/{alert_id}")
+def admin_update_alert(
+    alert_id: str,
+    body: AlertUpdateRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    try:
+        return alerts.admin_update_alert(
+            db, alert_id, actor=claims.subject, **body.model_dump(exclude_unset=True)
+        )
+    except alerts.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/alerts/{alert_id}/changelog")
+def admin_alert_changelog(alert_id: str, db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    return alerts.admin_get_alert_changelog(db, alert_id)
+
+
+@router.patch("/strategies/{strategy_id}/alerts")
+def admin_bundle_alerts(
+    strategy_id: str,
+    body: BundleAlertsRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> list[dict[str, Any]]:
+    try:
+        return alerts.admin_bundle_alerts_into_strategy(
+            db, strategy_id, body.alert_ids, actor=claims.subject
+        )
+    except alerts.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 

@@ -102,6 +102,7 @@ export interface ExecutionView {
   computed_lot: string;
   adapter: string;
   state: string;
+  last_error: string | null;
   ticket_id: string | null;
   deal_id: string | null;
   reconcile_count: number;
@@ -146,8 +147,15 @@ export interface StrategyView {
   price: string | null;
   profit_share_percent: string | null;
   base_lot: string | null;
+  win_rate: string | null;
+  max_drawdown: string | null;
+  description_short: string | null;
   is_active: boolean;
 }
+
+// "SETUP_INCOMPLETE" = admin has granted access but the client hasn't yet
+// completed the setup wizard (sizing + MT5 connection + risk confirmation).
+export type AssignmentStatus = "SETUP_INCOMPLETE" | "ACTIVE" | "PAUSED";
 
 export interface MyAssignmentView {
   id: string;
@@ -159,10 +167,30 @@ export interface MyAssignmentView {
   multiplier_min: string;
   multiplier_max: string;
   effective_lot: string;
-  status: string;
+  status: AssignmentStatus;
   payment_status: string;
   purchased_at: string | null;
   expires_at: string | null;
+  confirmed_risk_disclosure: boolean;
+  activated_at: string | null;
+}
+
+export interface AlertView {
+  id: string;
+  strategy_id: string | null;
+  name: string;
+  symbol: string;
+  lot_size: string;
+  timeframe: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AlertChangelogEntry {
+  event_type: string;
+  actor: string | null;
+  data: Record<string, string | null | string[]>;
+  created_at: string;
 }
 
 export interface PnlSummary {
@@ -179,6 +207,19 @@ export interface Mt5ConnectionView {
   status: string;
   last_checked_at: string | null;
   last_error: string | null;
+  metaapi_account_id: string | null;
+  metaapi_region: string | null;
+}
+
+export interface LiveBalance {
+  available: boolean;
+  reason?: string;
+  balance?: number;
+  equity?: number;
+  free_margin?: number;
+  currency?: string;
+  leverage?: number;
+  trade_mode?: string;
 }
 
 export interface AdminMt5ConnectionView extends Mt5ConnectionView {

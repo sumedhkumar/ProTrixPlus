@@ -20,9 +20,11 @@ export function Mt5ConnectionModal({
   const [tab, setTab] = useState<Tab>("setup");
   const [broker, setBroker] = useState(connection?.broker_server ?? "");
   const [login, setLogin] = useState(connection?.login ?? "");
-  const [investorToken, setInvestorToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [metaApiLink, setMetaApiLink] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+  const [checking, setChecking] = useState(false);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -33,19 +35,12 @@ export function Mt5ConnectionModal({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ broker_server: broker, login }),
     });
+    setBusy(false);
     if (!res.ok) {
-      setBusy(false);
       setError(`save failed (${res.status})`);
       return;
     }
-    const checkRes = await fetch("/api/me/mt5-connection/check", { method: "POST" });
-    setBusy(false);
-    if (!checkRes.ok) {
-      setError(`connection check failed (${checkRes.status})`);
-      return;
-    }
     router.refresh();
-    onClose();
   }
 
   async function disconnect() {
@@ -57,8 +52,36 @@ export function Mt5ConnectionModal({
       setError(`disconnect failed (${res.status})`);
       return;
     }
+    setMetaApiLink(null);
     router.refresh();
     onClose();
+  }
+
+  async function startMetaApiLink() {
+    setLinking(true);
+    setError(null);
+    const res = await fetch("/api/me/mt5-connection/metaapi-link", { method: "POST" });
+    setLinking(false);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `couldn't start MetaApi setup (${res.status})`);
+      return;
+    }
+    const body = (await res.json()) as { configuration_link: string };
+    setMetaApiLink(body.configuration_link);
+    router.refresh();
+  }
+
+  async function checkStatus() {
+    setChecking(true);
+    setError(null);
+    const res = await fetch("/api/me/mt5-connection/check", { method: "POST" });
+    setChecking(false);
+    if (!res.ok) {
+      setError(`check failed (${res.status})`);
+      return;
+    }
+    router.refresh();
   }
 
   return (
@@ -109,12 +132,12 @@ export function Mt5ConnectionModal({
             style={tab === "instructions" ? { color: "var(--fg)", borderBottomColor: "var(--accent-blue)" } : undefined}
             onClick={() => setTab("instructions")}
           >
-            &gt;_ How This Will Work
+            &gt;_ How This Works
           </button>
         </div>
 
         {tab === "setup" ? (
-          <form onSubmit={(e) => void save(e)} style={{ marginTop: 20 }}>
+          <div style={{ marginTop: 20 }}>
             {connection ? (
               <div
                 className="card"
@@ -128,7 +151,7 @@ export function Mt5ConnectionModal({
               >
                 <span style={{ fontSize: 13 }}>
                   Status:{" "}
-                  <b className={connection.status === "CONNECTED" ? "" : undefined} style={{ color: "var(--warn)" }}>
+                  <b style={{ color: connection.status === "CONNECTED" ? "var(--ok)" : "var(--warn)" }}>
                     {connection.status}
                   </b>
                   {connection.last_checked_at ? (
@@ -149,59 +172,101 @@ export function Mt5ConnectionModal({
               </div>
             ) : null}
 
-            <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-              MT5 broker server
-            </label>
-            <input
-              value={broker}
-              onChange={(e) => setBroker(e.target.value)}
-              placeholder="e.g. ICMarketsSC-Live02"
-              required
-              style={{ width: "100%", marginBottom: 14 }}
-            />
+            <form onSubmit={(e) => void save(e)}>
+              <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
+                MT5 broker server
+              </label>
+              <input
+                value={broker}
+                onChange={(e) => setBroker(e.target.value)}
+                placeholder="e.g. ICMarketsSC-Live02"
+                required
+                style={{ width: "100%", marginBottom: 14 }}
+              />
 
-            <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-              MT5 login / account number
-            </label>
-            <input
-              value={login}
-              onChange={(e) => setLogin(e.target.value)}
-              required
-              style={{ width: "100%", marginBottom: 14 }}
-            />
+              <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
+                MT5 login / account number
+              </label>
+              <input
+                value={login}
+                onChange={(e) => setLogin(e.target.value)}
+                required
+                style={{ width: "100%", marginBottom: 14 }}
+              />
+              <p style={{ color: "var(--dim)", fontSize: 11.5, marginBottom: 16 }}>
+                No password field here on purpose — you&apos;ll enter that directly with MetaApi in
+                the next step, never with ProTrixPlus.
+              </p>
 
-            <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-              Investor / EA token authorization
-            </label>
-            <input
-              type="password"
-              value={investorToken}
-              onChange={(e) => setInvestorToken(e.target.value)}
-              placeholder="not yet stored anywhere"
-              style={{ width: "100%" }}
-            />
-            <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 6, marginBottom: 20 }}>
-              Read-only investor password only - a master trading password should never be entered
-              here. <strong>This field isn&apos;t wired to anything yet</strong> - it isn&apos;t
-              sent or stored, since the real credential vault (CredentialVault) is still a stub.
-              It&apos;ll become real alongside the MetaApi integration.
-            </p>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 20 }}>
+                <button type="submit" className="secondary" disabled={busy}>
+                  {busy ? "Saving..." : "Save broker details"}
+                </button>
+              </div>
+            </form>
+
+            <div
+              className="card"
+              style={{ padding: 16, background: "rgba(124, 108, 246, 0.06)", marginBottom: 16 }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
+                🔐 Connect via MetaApi (real, self-service)
+              </div>
+              {!connection ? (
+                <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                  Save your broker server above first.
+                </p>
+              ) : metaApiLink ? (
+                <>
+                  <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
+                    Open this link and enter your MT5 login and password directly with MetaApi —
+                    ProTrixPlus never sees it.
+                  </p>
+                  <a
+                    href={metaApiLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-primary"
+                    style={{ display: "inline-block", marginBottom: 10, textDecoration: "none" }}
+                  >
+                    Open secure MetaApi setup →
+                  </a>
+                  <div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={checking}
+                      onClick={() => void checkStatus()}
+                    >
+                      {checking ? "Checking..." : "I've finished — check status"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
+                    {connection.metaapi_account_id
+                      ? "A MetaApi account is already attached. Generate a fresh link if you need to re-enter your password."
+                      : "Generates a real MetaApi setup link — no password typed here or seen by an admin."}
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    disabled={linking}
+                    onClick={() => void startMetaApiLink()}
+                  >
+                    {linking ? "Generating..." : "⚡ Connect via MetaApi"}
+                  </button>
+                </>
+              )}
+            </div>
 
             {error ? (
               <p style={{ color: "var(--bad)", marginBottom: 12 }} role="alert">
                 {error}
               </p>
             ) : null}
-
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button type="button" className="secondary" onClick={onClose}>
-                Cancel
-              </button>
-              <button type="submit" className="btn-primary" disabled={busy}>
-                {busy ? "Saving..." : "⚡ Test Connection & Save"}
-              </button>
-            </div>
-          </form>
+          </div>
         ) : (
           <div style={{ marginTop: 20 }}>
             <div className="card" style={{ marginBottom: 16 }}>
@@ -209,18 +274,21 @@ export function Mt5ConnectionModal({
                 🛡 Real transport: MetaApi.cloud, not a local EA
               </div>
               <p style={{ fontSize: 13, color: "var(--muted)" }}>
-                Unlike some bridge tools, ProTrixPlus&apos;s planned production transport
-                (ADR-001) is MetaApi.cloud, not a locally-installed MT5 Expert Advisor. That means
-                once it&apos;s wired in, there&apos;s <strong>no file to download or install</strong> -
-                connecting just needs your broker server, login, and investor password, entered
-                above.
+                ProTrixPlus&apos;s production transport (ADR-001) is MetaApi.cloud, not a
+                locally-installed MT5 Expert Advisor — <strong>no file to download or install</strong>.
+                Your broker server and login are saved with ProTrixPlus; your password is entered
+                directly with MetaApi via the &quot;Connect via MetaApi&quot; link, and never passes
+                through ProTrixPlus or an admin.
               </p>
             </div>
-            <div className="pending-panel" style={{ textAlign: "left" }}>
-              <strong>Not live yet</strong>
-              This deployment has no MetaApi.cloud API key configured, so &ldquo;Test Connection &amp;
-              Save&rdquo; stores your details but reports PENDING rather than a real broker check.
-              See docs/FULL-BUILD-PLAN.md Phase 3/5.
+            <div className="card" style={{ textAlign: "left" }}>
+              <strong style={{ display: "block", marginBottom: 6 }}>This is real and live</strong>
+              <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
+                Clicking &quot;Connect via MetaApi&quot; creates a real MetaApi account (with no
+                password) and a real, MetaApi-hosted link. Once you finish entering your credentials
+                there, click &quot;I&apos;ve finished — check status&quot; here to confirm the real
+                connection.
+              </p>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button type="button" className="secondary" onClick={() => setTab("setup")}>

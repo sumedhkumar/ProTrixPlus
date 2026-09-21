@@ -91,9 +91,7 @@ def test_admin_creates_and_toggles_strategy(client: TestClient, admin_token: str
     assert off.json()["is_active"] is False
 
 
-def test_activating_an_unpriced_strategy_is_rejected(
-    client: TestClient, admin_token: str
-) -> None:
+def test_activating_an_unpriced_strategy_is_rejected(client: TestClient, admin_token: str) -> None:
     strategy = client.post(
         "/api/v1/admin/strategies",
         json={"strategy_key": "unpriced", "strategy_version": "1.0", "name": "Unpriced"},

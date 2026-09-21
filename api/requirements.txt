@@ -11,5 +11,6 @@ redis==5.2.1
 PyJWT==2.10.1
 jsonschema==4.23.0
 python-json-logger==3.2.1
+httpx==0.28.1
 # Shared frozen contract (installed from the local path in Docker / CI).
 protrix-contracts==1.0.0

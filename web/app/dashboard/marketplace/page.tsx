@@ -1,14 +1,20 @@
 import { StrategyMarketplaceCard } from "@/components/StrategyMarketplaceCard";
-import { apiFetch, type MyAssignmentView, type StrategyView } from "@/lib/api";
+import {
+  apiFetch,
+  type Mt5ConnectionView,
+  type MyAssignmentView,
+  type StrategyView,
+} from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 export default async function MarketplacePage() {
   const token = getToken()!;
-  const [strategies, myAssignments] = await Promise.all([
+  const [strategies, myAssignments, mt5Connection] = await Promise.all([
     apiFetch<StrategyView[]>("/api/v1/strategies", token),
     apiFetch<MyAssignmentView[]>("/api/v1/me/assignments", token),
+    apiFetch<Mt5ConnectionView | null>("/api/v1/me/mt5-connection", token).catch(() => null),
   ]);
   const byStrategyId = new Map(myAssignments.map((a) => [a.strategy_id, a]));
 
@@ -30,7 +36,12 @@ export default async function MarketplacePage() {
           }}
         >
           {strategies.map((s) => (
-            <StrategyMarketplaceCard key={s.id} strategy={s} assignment={byStrategyId.get(s.id)} />
+            <StrategyMarketplaceCard
+              key={s.id}
+              strategy={s}
+              assignment={byStrategyId.get(s.id)}
+              mt5Connection={mt5Connection}
+            />
           ))}
         </div>
       )}
