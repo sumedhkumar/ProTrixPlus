@@ -74,6 +74,30 @@ def set_my_connection(
     return _dict(conn)
 
 
+def _probe_trading_api(*, metaapi_token: str, region: str | None, account_id: str) -> str | None:
+    """CONNECTED (above) only means MetaApi's terminal is logged into the
+    broker - a separate fact from whether MetaApi's own regional trading API
+    (the host every trade/balance call actually goes through) is reachable
+    right now. Those can genuinely diverge during a MetaApi-side regional
+    outage: the broker connection stays healthy while every trade call still
+    fails. Probing here surfaces that degraded state in `last_error` instead
+    of only in worker logs - `status` itself stays CONNECTED (the broker
+    connection *is* fine), since flipping it to PENDING/ERROR would
+    incorrectly block the setup wizard and existing live clients."""
+    if not region:
+        return None
+    try:
+        metaapi_client.get_account_information(
+            token=metaapi_token, region=region, account_id=account_id
+        )
+    except metaapi_client.MetaApiError as exc:
+        return (
+            "MT5 terminal is connected to your broker, but MetaApi's trading API is "
+            f"currently unavailable ({exc}) - trade placement may fail until this clears."
+        )
+    return None
+
+
 def check_connection(session: Session, user_id: str, *, metaapi_token: str = "") -> dict[str, Any]:
     """Real check when a MetaApi account is attached; an honest PENDING stub
     (never a fabricated CONNECTED) when it isn't yet."""
@@ -93,7 +117,11 @@ def check_connection(session: Session, user_id: str, *, metaapi_token: str = "")
             connection_status = status.get("connectionStatus")
             if connection_status == "CONNECTED":
                 conn.status = Mt5ConnectionStatus.CONNECTED.value
-                conn.last_error = None
+                conn.last_error = _probe_trading_api(
+                    metaapi_token=metaapi_token,
+                    region=conn.metaapi_region,
+                    account_id=conn.metaapi_account_id,
+                )
             else:
                 conn.status = Mt5ConnectionStatus.PENDING.value
                 conn.last_error = (

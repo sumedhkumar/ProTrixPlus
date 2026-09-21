@@ -181,8 +181,58 @@ def test_check_connection_real_status_flips_to_connected(
         "get_account_status",
         lambda **kwargs: {"state": "DEPLOYED", "connectionStatus": "CONNECTED"},  # noqa: ARG005
     )
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_information",
+        lambda **kwargs: {"balance": 1000},  # noqa: ARG005
+    )
     now_connected = client.post(
         "/api/v1/me/mt5-connection/check", headers=_auth(client_token)
     ).json()
     assert now_connected["status"] == "CONNECTED"
     assert now_connected["last_error"] is None
+
+
+def test_check_connection_surfaces_a_degraded_trading_api_without_flipping_status(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The broker-side terminal can be genuinely CONNECTED while MetaApi's
+    own regional trading API is having an outage (a real MetaApi.cloud
+    incident, not a bug in our code). `status` must stay CONNECTED - it's
+    still true - but `last_error` should surface the degraded API so it's
+    visible in the UI, not just in worker logs."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "123"},
+        headers=_auth(client_token),
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "create_account",
+        lambda **kwargs: {"id": "acct-degraded"},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "create_configuration_link",
+        lambda **kwargs: "https://app.metaapi.cloud/x",  # noqa: ARG005
+    )
+    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_status",
+        lambda **kwargs: {"state": "DEPLOYED", "connectionStatus": "CONNECTED"},  # noqa: ARG005
+    )
+
+    def failing_account_information(**kwargs):  # noqa: ARG001
+        raise metaapi_client.MetaApiError("MetaApi returned 503 for GET .../account-information")
+
+    monkeypatch.setattr(metaapi_client, "get_account_information", failing_account_information)
+
+    result = client.post("/api/v1/me/mt5-connection/check", headers=_auth(client_token)).json()
+    assert result["status"] == "CONNECTED"
+    assert result["last_error"] is not None
+    assert "trading API is currently unavailable" in result["last_error"]
