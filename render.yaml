@@ -1,0 +1,104 @@
+# Render Blueprint for a free, temporary deploy of the S0 mock stack.
+# Usage: Render dashboard -> New -> Blueprint -> pick this repo -> it reads this file.
+# See docs/DEPLOY-RENDER.md for the full walkthrough (Upstash Redis setup etc.).
+
+databases:
+  - name: protrixplus-db
+    databaseName: protrix
+    user: protrix
+    plan: free
+
+envVarGroups:
+  - name: protrixplus-shared
+    envVars:
+      - key: PROTRIX_WEBHOOK_SHARED_SECRET
+        generateValue: true
+
+services:
+  - type: web
+    name: protrixplus-api
+    runtime: docker
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVarGroups:
+      - protrixplus-shared
+    envVars:
+      - key: PROTRIX_APP_ENV
+        value: prod
+      - key: PROTRIX_LOG_LEVEL
+        value: INFO
+      - key: PROTRIX_SERVICE_NAME
+        value: api
+      - key: PROTRIX_DATABASE_URL
+        fromDatabase:
+          name: protrixplus-db
+          property: connectionString
+      - key: PROTRIX_REDIS_URL
+        sync: false # paste the Upstash "rediss://" URL here after creating it
+      - key: PROTRIX_SIGNAL_STREAM
+        value: protrix.signals.v1
+      - key: PROTRIX_SIGNAL_CONSUMER_GROUP
+        value: protrix-workers
+      - key: PROTRIX_DEV_IDENTITY_ENABLED
+        value: "true"
+      - key: PROTRIX_DEV_JWT_SECRET
+        generateValue: true
+      - key: PROTRIX_DEV_JWT_ISSUER
+        value: protrixplus-dev-identity
+      - key: PROTRIX_EMAIL_BACKEND
+        value: mock
+      - key: PROTRIX_FRONTEND_BASE_URL
+        value: https://protrixplus-web.onrender.com
+      - key: PROTRIX_METAAPI_TOKEN
+        value: ""
+
+  - type: worker
+    name: protrixplus-worker
+    runtime: docker
+    dockerfilePath: ./worker/Dockerfile
+    dockerContext: .
+    plan: free
+    envVarGroups:
+      - protrixplus-shared
+    envVars:
+      - key: PROTRIX_APP_ENV
+        value: prod
+      - key: PROTRIX_LOG_LEVEL
+        value: INFO
+      - key: PROTRIX_SERVICE_NAME
+        value: worker
+      - key: PROTRIX_WORKER_NAME
+        value: worker-1
+      - key: PROTRIX_DATABASE_URL
+        fromDatabase:
+          name: protrixplus-db
+          property: connectionString
+      - key: PROTRIX_REDIS_URL
+        sync: false # same Upstash "rediss://" URL as the api service
+      - key: PROTRIX_SIGNAL_STREAM
+        value: protrix.signals.v1
+      - key: PROTRIX_SIGNAL_CONSUMER_GROUP
+        value: protrix-workers
+      - key: PROTRIX_EXECUTION_ADAPTER
+        value: mock
+      - key: PROTRIX_METAAPI_TRADING_ENABLED
+        value: "false"
+      - key: PROTRIX_METAAPI_MAGIC
+        value: "260910"
+      - key: PROTRIX_METAAPI_TIMEOUT_SECONDS
+        value: "30"
+
+  - type: web
+    name: protrixplus-web
+    runtime: docker
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /login
+    envVarGroups:
+      - protrixplus-shared
+    envVars:
+      - key: PROTRIX_API_URL
+        value: https://protrixplus-api.onrender.com
