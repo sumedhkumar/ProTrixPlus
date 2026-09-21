@@ -1,8 +1,12 @@
-# Free, temporary deploy on Render
+# Free, temporary deploy: api + worker + Postgres on Render
 
-This deploys the S0 stack (web, api, worker, Postgres) to Render's free tier,
-plus a free Upstash Redis (Render doesn't offer free Redis). Everything here
-uses mock adapters/identity, same as local dev — no real credentials needed.
+This deploys the api and worker (Postgres too) to Render's free tier, plus a
+free Upstash Redis (Render doesn't offer free Redis). `web` (Next.js) deploys
+separately to Vercel — see [docs/DEPLOY-VERCEL.md](DEPLOY-VERCEL.md). Do this
+doc first: Vercel's `web` needs the api's URL as a build-time env var.
+
+Everything here uses mock adapters/identity, same as local dev — no real
+credentials needed.
 
 Render has **no free Background Worker plan** (confirmed against the actual
 dashboard — the marketing copy is misleading), so the worker runs inside the
@@ -14,9 +18,9 @@ same container as the api instead of as its own service:
 separate Dockerfile from the ones `infra/docker-compose.yml` uses.
 
 **Free-tier caveats (fine for a temporary demo, not for anything long-lived):**
-- `protrixplus-api` and `protrixplus-web` spin down after ~15 min idle; the
-  next request wakes them up (10-50s cold start, and it restarts the worker
-  loop too since they're in the same container).
+- `protrixplus-api` spins down after ~15 min idle; the next request wakes it
+  up (10-50s cold start, and it restarts the worker loop too since they're in
+  the same container).
 - The free Postgres database is deleted 30 days after creation (14-day grace
   period to upgrade before that happens).
 
@@ -40,45 +44,34 @@ branch, doesn't have to be `main`).
 1. Go to <https://dashboard.render.com>, sign up free (GitHub login works).
 2. **New** -> **Blueprint** -> connect your GitHub account -> pick the
    `ProTrixPlus` repo and the branch you pushed.
-3. Render reads `render.yaml` and shows 2 services (`protrixplus-api`,
-   `protrixplus-web`) + 1 database (`protrixplus-db`). Confirm plans are all
-   **Free**. If you'd already tried the earlier version of this blueprint and
-   have a leftover `protrixplus-worker` resource in a failed state, the sync
-   screen should offer to remove it since it's no longer in `render.yaml` —
-   let it.
+3. Render reads `render.yaml` and shows 1 service (`protrixplus-api`) + 1
+   database (`protrixplus-db`). Confirm the plan is **Free**.
 4. Render will pause on `PROTRIX_REDIS_URL` (marked `sync: false` in the
    blueprint so the secret isn't committed to git) — paste the Upstash
-   `rediss://` URL from step 2 into `protrixplus-api`.
+   `rediss://` URL from step 2.
 5. Click **Apply** / **Create New Resources**. First build takes a few
    minutes (Docker build + Postgres provisioning).
 
-## 4. Fix up the cross-service URLs (one-time, after first deploy)
-
-`render.yaml` assumes the default Render URLs
-(`https://protrixplus-api.onrender.com`, `https://protrixplus-web.onrender.com`).
-If Render appended a random suffix (happens if the name was taken), open each
-service's **Environment** tab and update:
-
-- On `protrixplus-web`: `PROTRIX_API_URL` -> the actual api service URL.
-- On `protrixplus-api`: `PROTRIX_FRONTEND_BASE_URL` -> the actual web service URL.
-
-`PROTRIX_API_URL` is baked into the Next.js build at build time, so after
-changing it, **manually redeploy** `protrixplus-web` (Manual Deploy -> Clear
-build cache & deploy) for it to take effect.
-
-## 5. Verify
+## 4. Verify
 
 ```
 curl -fsS https://protrixplus-api.onrender.com/health
 ```
 
-Open `https://protrixplus-web.onrender.com/login` in a browser, sign in as
-**USER** or **SUPER_ADMIN** (mock identity, no password — same as local dev).
+(If Render appended a random suffix to the service name, use that actual
+URL instead — check the service page.)
 
 To test the signal -> execution flow, adapt
 `infra/scripts/simulate_signal.py` to POST at the deployed api URL with the
 `PROTRIX_WEBHOOK_SHARED_SECRET` value Render generated (Environment tab on
 `protrixplus-api`), instead of `localhost:8000`.
+
+## 5. After web is deployed on Vercel
+
+Update `PROTRIX_FRONTEND_BASE_URL` on `protrixplus-api` (Environment tab) to
+your actual Vercel URL if it differs from the `render.yaml` default
+(`https://protrixplus.vercel.app`) — used to build the password-reset link in
+mock-sent emails, not load-bearing for anything else.
 
 ## Tearing it down
 

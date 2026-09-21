@@ -1,4 +1,5 @@
-# Render Blueprint for a free, temporary deploy of the S0 mock stack.
+# Render Blueprint for the api+worker+db half of the free, temporary deploy.
+# `web` (Next.js) deploys separately to Vercel - see docs/DEPLOY-VERCEL.md.
 # Usage: Render dashboard -> New -> Blueprint -> pick this repo -> it reads this file.
 # See docs/DEPLOY-RENDER.md for the full walkthrough (Upstash Redis setup etc.).
 #
@@ -55,7 +56,7 @@ services:
       - key: PROTRIX_EMAIL_BACKEND
         value: mock
       - key: PROTRIX_FRONTEND_BASE_URL
-        value: https://protrixplus-web.onrender.com
+        value: https://protrixplus.vercel.app # update after your first Vercel deploy if the URL differs
       - key: PROTRIX_METAAPI_TOKEN
         value: ""
       # worker-only settings (same container, see combined-entrypoint.sh)
@@ -71,15 +72,3 @@ services:
         value: "260910"
       - key: PROTRIX_METAAPI_TIMEOUT_SECONDS
         value: "30"
-
-  - type: web
-    name: protrixplus-web
-    runtime: docker
-    dockerfilePath: ./web/Dockerfile
-    dockerContext: .
-    plan: free
-    healthCheckPath: /login
-    envVars:
-      - fromGroup: protrixplus-shared
-      - key: PROTRIX_API_URL
-        value: https://protrixplus-api.onrender.com
