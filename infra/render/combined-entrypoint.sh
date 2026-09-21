@@ -24,11 +24,38 @@ else:
     sys.exit("[combined] postgres never became ready")
 PY
 
-echo "[combined] running migrations..."
-(cd /app/api && alembic upgrade head)
+# A Postgres advisory lock serializes migrate+seed across container
+# instances. Render's health-check-driven restarts can briefly overlap an
+# old crash-looping instance with a new one, and two concurrent
+# `alembic upgrade head` runs both doing their own "does this table exist?"
+# check race and can both try to CREATE TABLE the same object. The lock is
+# held for one psycopg session spanning both subprocess calls (session-level
+# advisory locks aren't tied to a transaction), so a second instance blocks
+# here until the first fully finishes instead of racing it.
+echo "[combined] waiting for migration lock..."
+python - <<'PY'
+import os
+import subprocess
+import sys
 
-echo "[combined] seeding fake data..."
-(cd /app/api && python -m app.seed)
+from sqlalchemy import create_engine, text
+from protrix_contracts.db.session import normalize_database_url
+
+url = normalize_database_url(os.environ["PROTRIX_DATABASE_URL"])
+conn = create_engine(url).connect()
+conn.execute(text("SELECT pg_advisory_lock(727310001)"))
+conn.commit()
+print("[combined] migration lock acquired")
+try:
+    print("[combined] running migrations...")
+    subprocess.run(["alembic", "upgrade", "head"], cwd="/app/api", check=True)
+    print("[combined] seeding fake data...")
+    subprocess.run(["python", "-m", "app.seed"], cwd="/app/api", check=True)
+finally:
+    conn.execute(text("SELECT pg_advisory_unlock(727310001)"))
+    conn.commit()
+    conn.close()
+PY
 
 # Worker's health server would otherwise also try to bind :8000 (its
 # in-container default) and collide with uvicorn; give it its own port.
