@@ -4,13 +4,21 @@ This deploys the S0 stack (web, api, worker, Postgres) to Render's free tier,
 plus a free Upstash Redis (Render doesn't offer free Redis). Everything here
 uses mock adapters/identity, same as local dev — no real credentials needed.
 
+Render has **no free Background Worker plan** (confirmed against the actual
+dashboard — the marketing copy is misleading), so the worker runs inside the
+same container as the api instead of as its own service:
+`infra/render/combined.Dockerfile` builds one image that runs both
+`uvicorn` (api, foreground, port 8000 — what Render health-checks) and
+`python -m app.main` (worker, background, its own health port 8001) via
+`infra/render/combined-entrypoint.sh`. Local dev is unaffected — that's a
+separate Dockerfile from the ones `infra/docker-compose.yml` uses.
+
 **Free-tier caveats (fine for a temporary demo, not for anything long-lived):**
 - `protrixplus-api` and `protrixplus-web` spin down after ~15 min idle; the
-  next request wakes them up (10-50s cold start).
+  next request wakes them up (10-50s cold start, and it restarts the worker
+  loop too since they're in the same container).
 - The free Postgres database is deleted 30 days after creation (14-day grace
   period to upgrade before that happens).
-- The free worker doesn't spin down, but shares the same free-tier CPU/RAM
-  limits.
 
 ## 1. Push this repo to GitHub
 
@@ -32,15 +40,17 @@ branch, doesn't have to be `main`).
 1. Go to <https://dashboard.render.com>, sign up free (GitHub login works).
 2. **New** -> **Blueprint** -> connect your GitHub account -> pick the
    `ProTrixPlus` repo and the branch you pushed.
-3. Render reads `render.yaml` and shows 3 services (`protrixplus-api`,
-   `protrixplus-worker`, `protrixplus-web`) + 1 database
-   (`protrixplus-db`). Confirm plans are all **Free**.
+3. Render reads `render.yaml` and shows 2 services (`protrixplus-api`,
+   `protrixplus-web`) + 1 database (`protrixplus-db`). Confirm plans are all
+   **Free**. If you'd already tried the earlier version of this blueprint and
+   have a leftover `protrixplus-worker` resource in a failed state, the sync
+   screen should offer to remove it since it's no longer in `render.yaml` —
+   let it.
 4. Render will pause on `PROTRIX_REDIS_URL` (marked `sync: false` in the
    blueprint so the secret isn't committed to git) — paste the Upstash
-   `rediss://` URL from step 2 for **both** `protrixplus-api` and
-   `protrixplus-worker`.
-5. Click **Apply** / **Create New Resources**. First build takes ~5-10 min
-   (Docker builds for 3 services + Postgres provisioning).
+   `rediss://` URL from step 2 into `protrixplus-api`.
+5. Click **Apply** / **Create New Resources**. First build takes a few
+   minutes (Docker build + Postgres provisioning).
 
 ## 4. Fix up the cross-service URLs (one-time, after first deploy)
 
