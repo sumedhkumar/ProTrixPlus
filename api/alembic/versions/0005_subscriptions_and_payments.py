@@ -1,7 +1,7 @@
 """account-level subscriptions, payment submissions, password reset tokens
 
 Revision ID: 0005_subscriptions_and_payments
-Revises: 0004_strategy_symbol
+Revises: 0006_alerts_setup_gate
 Create Date: 2026-09-18
 
 Adds account-level subscription tracking to `users` (phone,
@@ -23,7 +23,7 @@ from sqlalchemy import inspect
 from alembic import op
 
 revision: str = "0005_subscriptions_and_payments"
-down_revision: str | None = "0004_strategy_symbol"
+down_revision: str | None = "0006_alerts_setup_gate"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
