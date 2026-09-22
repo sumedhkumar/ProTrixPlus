@@ -10,8 +10,10 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+import app.routers.auth as auth_router
 from app.auth import hash_password, verify_password
 from app.email import MockEmailSender
+from app.identity.google_verifier import GoogleIdentity, GoogleTokenError
 
 pytestmark = pytest.mark.dbtest
 
@@ -125,6 +127,15 @@ def test_signup_trial_rejects_duplicate_email(client: TestClient) -> None:
     assert second.status_code == 409
 
 
+def test_signup_trial_without_phone_still_creates_account(client: TestClient) -> None:
+    """Phone isn't collected on the trial form for now - must stay optional."""
+    r = client.post(
+        "/auth/signup-trial", json={"name": "Priya", "email": "priya@example.test"}
+    )
+    assert r.status_code == 201
+    assert r.json()["email"] == "priya@example.test"
+
+
 def test_trial_login_forces_password_change_then_set_password_clears_flag(
     client: TestClient, mock_email: MockEmailSender
 ) -> None:
@@ -224,3 +235,89 @@ def test_reset_password_rejects_bogus_token(client: TestClient) -> None:
         "/auth/reset-password", json={"token": "not-a-real-token", "new_password": "whatever123"}
     )
     assert r.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in - optional, verified email only, never bypasses the forced
+# first password login. verify_google_id_token itself (JWKS/RS256 handling)
+# is stubbed here; it isn't a session-token concern, see
+# app/identity/google_verifier.py's own docstring for why.
+# ---------------------------------------------------------------------------
+
+
+def _stub_google_identity(monkeypatch: pytest.MonkeyPatch, email: str, name: str) -> None:
+    monkeypatch.setattr(
+        auth_router,
+        "verify_google_id_token",
+        lambda credential, *, client_id: GoogleIdentity(email=email, name=name),
+    )
+
+
+def test_signup_google_creates_trial_account_and_emails_temp_password(
+    client: TestClient, mock_email: MockEmailSender, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_google_identity(monkeypatch, "jane@gmail.test", "Jane")
+
+    r = client.post("/auth/signup-google", json={"credential": "fake-token"})
+    assert r.status_code == 201
+    assert r.json()["email"] == "jane@gmail.test"
+    assert "access_token" not in r.json()  # same as /auth/signup-trial - not logged in yet
+
+    assert len(mock_email.sent) == 1
+    assert mock_email.sent[0]["to"] == "jane@gmail.test"
+
+
+def test_signup_google_rejects_duplicate_email(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_google_identity(monkeypatch, "kim@gmail.test", "Kim")
+    first = client.post("/auth/signup-google", json={"credential": "fake-token"})
+    assert first.status_code == 201
+    second = client.post("/auth/signup-google", json={"credential": "fake-token"})
+    assert second.status_code == 409
+
+
+def test_signup_google_rejects_invalid_credential(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _raise(credential: str, *, client_id: str) -> GoogleIdentity:
+        raise GoogleTokenError("invalid Google credential: bad signature")
+
+    monkeypatch.setattr(auth_router, "verify_google_id_token", _raise)
+    r = client.post("/auth/signup-google", json={"credential": "garbage"})
+    assert r.status_code == 401
+
+
+def test_login_google_rejects_unknown_account(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_google_identity(monkeypatch, "nobody@gmail.test", "Nobody")
+    r = client.post("/auth/login-google", json={"credential": "fake-token"})
+    assert r.status_code == 404
+
+
+def test_login_google_blocked_until_first_password_login_completes(
+    client: TestClient, mock_email: MockEmailSender, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_google_identity(monkeypatch, "liam@gmail.test", "Liam")
+    client.post("/auth/signup-google", json={"credential": "fake-token"})
+
+    still_pending = client.post("/auth/login-google", json={"credential": "fake-token"})
+    assert still_pending.status_code == 403
+
+    temp_password = mock_email.sent[0]["body_text"].split("Temporary password: ")[1].splitlines()[0]
+    first_login = client.post(
+        "/auth/login", json={"email": "liam@gmail.test", "password": temp_password}
+    )
+    assert first_login.status_code == 200
+    token = first_login.json()["access_token"]
+    client.post(
+        "/auth/set-password",
+        json={"new_password": "a-brand-new-password"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    now_allowed = client.post("/auth/login-google", json={"credential": "fake-token"})
+    assert now_allowed.status_code == 200
+    assert now_allowed.json()["email"] == "liam@gmail.test"
+    assert now_allowed.json()["must_change_password"] is False

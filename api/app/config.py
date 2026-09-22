@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     # Brevo API key (email_backend="brevo"). The sender address above must be
     # verified under Senders in the Brevo dashboard or sends are rejected.
     brevo_api_key: SecretStr = SecretStr("")
+    # Google OAuth 2.0 client ID (not a secret - it's embedded in the frontend
+    # JS bundle regardless). Used to verify the "aud" claim on Google ID
+    # tokens (app/identity/google_verifier.py). Empty disables Google sign-in.
+    google_oauth_client_id: str = ""
     # Where payment-proof (UTR) submissions get emailed for human review.
     admin_notify_email: str = ""
     # Used to build the password-reset link sent to a user's inbox.

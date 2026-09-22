@@ -9,6 +9,7 @@ alembic==1.14.0
 psycopg[binary]==3.2.3
 redis==5.2.1
 PyJWT==2.10.1
+cryptography==50.0.1  # PyJWT's RS256 backend, needed to verify Google ID tokens
 jsonschema==4.23.0
 python-json-logger==3.2.1
 httpx==0.28.1

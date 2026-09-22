@@ -21,10 +21,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import hash_password, verify_password
-from app.config import get_settings
+from app.config import Settings, get_settings
 from app.db import get_db
 from app.email import EmailSender, get_email_sender
 from app.identity import Claims, IdentityProvider
+from app.identity.google_verifier import GoogleTokenError, verify_google_id_token
 from app.security import current_claims, get_identity_provider
 from app.services import notifications, subscriptions
 
@@ -71,7 +72,9 @@ class AuthResponse(BaseModel):
 class SignupTrialRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: str = Field(min_length=3, max_length=320, pattern=_EMAIL_RE)
-    phone: str = Field(min_length=1, max_length=32)
+    # Not collected on the free-trial form for now (may come back as a
+    # settings-page addition later) - nullable to match User.phone.
+    phone: str | None = Field(default=None, max_length=32)
 
     @field_validator("email")
     @classmethod
@@ -82,6 +85,10 @@ class SignupTrialRequest(BaseModel):
 class SignupTrialResponse(BaseModel):
     email: str
     message: str = "Account created. Check your email for a temporary password."
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: str = Field(min_length=1)
 
 
 class SetPasswordRequest(BaseModel):
@@ -213,6 +220,100 @@ def signup_trial(
         sender, to=user.email, display_name=user.display_name, temp_password=temp_password
     )
     return SignupTrialResponse(email=user.email)
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in - optional, never required. "Continue with Google" on
+# signup provisions a trial account the same way /signup-trial does (temp
+# password emailed to the Google account's address, must_change_password
+# forces a first login by password). Only after that first password login
+# clears must_change_password can /auth/login-google be used - this is a
+# deliberate email-ownership check, same one the temp-password flow relies on
+# elsewhere: Google merely proves "this address exists and is verified",
+# not "this person already controls this account".
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/signup-google", response_model=SignupTrialResponse, status_code=status.HTTP_201_CREATED
+)
+def signup_google(
+    body: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+    sender: EmailSender = Depends(get_email_sender),
+    settings: Settings = Depends(get_settings),
+) -> SignupTrialResponse:
+    try:
+        identity = verify_google_id_token(
+            body.credential, client_id=settings.google_oauth_client_id
+        )
+    except GoogleTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    try:
+        user, temp_password = subscriptions.create_user_with_temp_password(
+            db,
+            email=identity.email,
+            display_name=identity.name,
+            phone=None,
+            package="TRIAL_7D",
+        )
+    except subscriptions.EmailAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="an account with this email already exists"
+        ) from exc
+
+    notifications.send_trial_welcome_email(
+        sender, to=user.email, display_name=user.display_name, temp_password=temp_password
+    )
+    return SignupTrialResponse(email=user.email)
+
+
+@router.post("/login-google", response_model=AuthResponse)
+def login_google(
+    body: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+    provider: IdentityProvider = Depends(get_identity_provider),
+    settings: Settings = Depends(get_settings),
+) -> AuthResponse:
+    try:
+        identity = verify_google_id_token(
+            body.credential, client_id=settings.google_oauth_client_id
+        )
+    except GoogleTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    user = db.scalar(select(User).where(User.email == identity.email))
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="no account for this Google email - sign up first",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="account is inactive")
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "complete your first login with the emailed password "
+                "before using Google sign-in"
+            ),
+        )
+
+    token = provider.issue(
+        subject=str(user.id),
+        role=UserRole(user.role),
+        display_name=user.display_name,
+        email=user.email,
+    )
+    return AuthResponse(
+        access_token=token,
+        subject=str(user.id),
+        role=UserRole(user.role),
+        display_name=user.display_name,
+        email=user.email,
+        must_change_password=user.must_change_password,
+    )
 
 
 @router.post("/set-password")

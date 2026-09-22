@@ -76,6 +76,12 @@ services:
         # Must match the web service's URL below; Render appends a suffix if
         # the name is taken, so check the real URL after the first deploy.
         value: https://protrixplus-web.onrender.com
+      - key: PROTRIX_GOOGLE_OAUTH_CLIENT_ID
+        # Not a secret (it's embedded in the frontend bundle too, see
+        # NEXT_PUBLIC_GOOGLE_CLIENT_ID below) - same value in both places.
+        # From Google Cloud Console -> APIs & Services -> Credentials -> OAuth
+        # 2.0 Client ID (Web application). Empty disables Google sign-in.
+        sync: false
       - key: PROTRIX_METAAPI_TOKEN
         value: ""
       # worker-only settings (same container, see combined-entrypoint.sh)
@@ -111,3 +117,8 @@ services:
         value: https://protrixplus-api.onrender.com
       - key: NODE_ENV
         value: production
+      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
+        # Baked into the client JS bundle at build time (standard Next.js
+        # NEXT_PUBLIC_ behavior) - must match PROTRIX_GOOGLE_OAUTH_CLIENT_ID
+        # on protrixplus-api above. A redeploy is needed if this changes.
+        sync: false

@@ -1055,6 +1055,228 @@ select:focus {
   margin-bottom: 10px;
 }
 
+/* ---------- "or" divider between an SSO button and the classic form ---------- */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--panel-border);
+}
+
+/* Google's rendered button lives in a cross-origin iframe, so only the
+   wrapper box can be styled - a matching hover lift keeps it visually
+   consistent with .btn-ghost / .demo-profile-btn next to it. */
+.google-btn-wrap {
+  display: flex;
+  justify-content: center;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+.google-btn-wrap:hover {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 6px 18px rgba(124, 108, 246, 0.25));
+}
+.google-btn-wrap[data-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* ---------- auth alert (Google no-account/already-exists, form errors) ----------
+   Same visual family as .form-panel (subtle border, soft shadow) so it reads
+   as part of the page rather than a bolted-on toast, but with enough color to
+   actually get noticed instead of the plain red text it replaced. */
+.auth-alert {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 40px 14px 14px;
+  border-radius: 12px;
+  border: 1px solid;
+  box-shadow: 0 14px 34px -20px rgba(0, 0, 0, 0.65);
+}
+.auth-alert.error {
+  border-color: rgba(240, 87, 107, 0.35);
+  background: rgba(240, 87, 107, 0.08);
+}
+.auth-alert.info {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.08);
+}
+.auth-alert-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 13px;
+  font-weight: 800;
+  font-style: normal;
+}
+.auth-alert.error .auth-alert-icon {
+  background: rgba(240, 87, 107, 0.18);
+  color: var(--bad);
+}
+.auth-alert.info .auth-alert-icon {
+  background: rgba(34, 211, 238, 0.18);
+  color: var(--accent);
+}
+.auth-alert-body {
+  flex: 1;
+  min-width: 0;
+}
+.auth-alert-message {
+  font-size: 13px;
+  color: var(--fg);
+  line-height: 1.5;
+  margin: 0;
+}
+.auth-alert-action {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.auth-alert-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-alert-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.auth-alert-close:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.auth-alert-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(34, 211, 238, 0.25);
+  border-top-color: var(--accent);
+  animation: authSpin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .auth-alert {
+    animation: authAlertIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes authAlertIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-alert-spinner {
+    animation-duration: 1.4s;
+  }
+}
+
+/* ---------- sign-in <-> create-account mode swap ----------
+   Only the parts that differ between modes are swapped; the tab group, the
+   Google button and the "or" divider stay mounted so nothing flickers.
+   .auth-swap animates its height so the panel never snaps when the field
+   count changes; it is only clipped while that height is in motion, so focus
+   rings aren't cut off at rest. */
+.auth-swap {
+  transition: height 0.44s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.auth-swap[data-animating="true"] {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-swap {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes authSwapIn {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  .auth-swap-content {
+    animation: authSwapIn 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* The pitch column reuses the page's entrance animations, but their
+     original delays (up to 0.62s) are tuned for a first paint and read as
+     sluggish on a toggle - these overrides only apply once a toggle has
+     actually happened, so the initial load is untouched. */
+  .auth-swap-pitch .badge-pill:not(.brandmark-badge),
+  .auth-swap-pitch .hero-heading,
+  .auth-swap-pitch .hero-copy,
+  .auth-swap-pitch .feature-row {
+    animation-duration: 0.46s;
+  }
+  .auth-swap-pitch .badge-pill:not(.brandmark-badge) {
+    animation-delay: 0.02s;
+  }
+  .auth-swap-pitch .hero-heading {
+    animation-delay: 0.07s;
+  }
+  .auth-swap-pitch .hero-copy {
+    animation-delay: 0.12s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(1) {
+    animation-delay: 0.17s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(2) {
+    animation-delay: 0.22s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(3) {
+    animation-delay: 0.27s;
+  }
+}
+
 .steps-list {
   display: grid;
   gap: 24px;

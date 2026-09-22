@@ -32,6 +32,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     )
     if settings.is_production and settings.dev_identity_enabled:
         raise RuntimeError("dev identity must not be enabled in production")
+    if settings.is_production:
+        secret = settings.dev_jwt_secret.get_secret_value()
+        if secret == "dev-only-not-a-real-secret-change-me" or len(secret) < 32:
+            raise RuntimeError(
+                "dev_jwt_secret must be overridden with a strong (32+ char) value in production"
+            )
     yield
     log.info("api shutting down")
 
