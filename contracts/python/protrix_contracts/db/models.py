@@ -400,6 +400,10 @@ class Signal(Base):
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = _created_at()
 
+    # Incremented each time the same idempotency_key is re-delivered (a genuine
+    # dedup hit, not a conflict) - Phase 10 ops visibility into duplicate alerts.
+    duplicate_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
+
     intents: Mapped[list[OrderIntent]] = relationship(back_populates="signal")
 
 
@@ -581,3 +585,26 @@ class MockBrokerDeal(Base):
     side: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = _created_at()
+
+
+class VaultSecret(Base):
+    """Encrypted-at-rest storage for ``RealCredentialVault`` (api/app/vault/real.py).
+
+    Only ``ciphertext`` is secret; everything else here is the same
+    safe-to-log metadata ``ScopedCredentialHandle`` already exposes. Never
+    read/written directly outside the vault module - callers only ever see a
+    ``ScopedCredentialHandle``, never a row from this table.
+    """
+
+    __tablename__ = "vault_secrets"
+    __table_args__ = (UniqueConstraint("handle_id", name="uq_vault_secrets_handle_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    handle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

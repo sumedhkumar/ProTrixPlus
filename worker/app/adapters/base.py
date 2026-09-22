@@ -34,6 +34,13 @@ class OrderIntentDTO:
     take_profit: Decimal | None = None
     position_ref: str | None = None
     close_fraction: Decimal | None = None
+    # Only used by the mock adapter to resolve a CLOSE/MODIFY against the
+    # right previously-opened position - the real mt5 adapter ignores these
+    # (it rejects every non-ENTRY action until real broker position lookup
+    # exists).
+    user_id: str | None = None
+    strategy_key: str | None = None
+    strategy_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +49,9 @@ class PlaceResult:
     deal_id: str
     status: PlaceStatus
     raw: dict[str, str]
+    # Set by the mock adapter on a successful ENTRY placement so the caller
+    # can persist it onto the Execution row; None everywhere else.
+    entry_price: Decimal | None = None
 
 
 @dataclass(frozen=True)

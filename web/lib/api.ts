@@ -233,4 +233,7 @@ export interface OpsSummary {
   execution_state_counts: Record<string, number>;
   stuck_unknown_count: number;
   revoked_assignments: number;
+  duplicate_signal_count: number;
+  mt5_disconnected_count: number;
+  broker_rejected_count: number;
 }

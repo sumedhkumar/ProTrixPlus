@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     metaapi_token: SecretStr = SecretStr("")
     metaapi_default_region: str = "london"
 
+    # Encryption key for RealCredentialVault (api/app/vault/real.py). Unused
+    # today - nothing constructs that vault yet - but read from here once
+    # something does. Generate with Fernet.generate_key().
+    vault_encryption_key: SecretStr = SecretStr("")
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -102,6 +107,7 @@ class Settings(BaseSettings):
             self.smtp_password.get_secret_value(),
             self.brevo_api_key.get_secret_value(),
             self.metaapi_token.get_secret_value(),
+            self.vault_encryption_key.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):
