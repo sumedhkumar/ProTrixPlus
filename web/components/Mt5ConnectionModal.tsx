@@ -20,10 +20,10 @@ export function Mt5ConnectionModal({
   const [tab, setTab] = useState<Tab>("setup");
   const [broker, setBroker] = useState(connection?.broker_server ?? "");
   const [login, setLogin] = useState(connection?.login ?? "");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [metaApiLink, setMetaApiLink] = useState<string | null>(null);
-  const [linking, setLinking] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
 
   async function save(e: React.FormEvent) {
@@ -52,23 +52,26 @@ export function Mt5ConnectionModal({
       setError(`disconnect failed (${res.status})`);
       return;
     }
-    setMetaApiLink(null);
     router.refresh();
     onClose();
   }
 
-  async function startMetaApiLink() {
-    setLinking(true);
+  async function connectWithCredentials(e: React.FormEvent) {
+    e.preventDefault();
+    setConnecting(true);
     setError(null);
-    const res = await fetch("/api/me/mt5-connection/metaapi-link", { method: "POST" });
-    setLinking(false);
+    const res = await fetch("/api/me/mt5-connection/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    });
+    setConnecting(false);
+    setPassword("");
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { detail?: string };
-      setError(body.detail ?? `couldn't start MetaApi setup (${res.status})`);
+      setError(body.detail ?? `couldn't connect (${res.status})`);
       return;
     }
-    const body = (await res.json()) as { configuration_link: string };
-    setMetaApiLink(body.configuration_link);
     router.refresh();
   }
 
@@ -193,10 +196,6 @@ export function Mt5ConnectionModal({
                 required
                 style={{ width: "100%", marginBottom: 14 }}
               />
-              <p style={{ color: "var(--dim)", fontSize: 11.5, marginBottom: 16 }}>
-                No password field here on purpose — you&apos;ll enter that directly with MetaApi in
-                the next step, never with ProTrixPlus.
-              </p>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 20 }}>
                 <button type="submit" className="secondary" disabled={busy}>
@@ -210,54 +209,45 @@ export function Mt5ConnectionModal({
               style={{ padding: 16, background: "rgba(124, 108, 246, 0.06)", marginBottom: 16 }}
             >
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 6 }}>
-                🔐 Connect via MetaApi (real, self-service)
+                🔐 Connect your MT5 account
               </div>
               {!connection ? (
                 <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
-                  Save your broker server above first.
+                  Save your broker server and login above first.
                 </p>
-              ) : metaApiLink ? (
-                <>
-                  <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-                    Open this link and enter your MT5 login and password directly with MetaApi —
-                    ProTrixPlus never sees it.
-                  </p>
-                  <a
-                    href={metaApiLink}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn-primary"
-                    style={{ display: "inline-block", marginBottom: 10, textDecoration: "none" }}
-                  >
-                    Open secure MetaApi setup →
-                  </a>
-                  <div>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={checking}
-                      onClick={() => void checkStatus()}
-                    >
-                      {checking ? "Checking..." : "I've finished — check status"}
-                    </button>
-                  </div>
-                </>
               ) : (
-                <>
-                  <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
-                    {connection.metaapi_account_id
-                      ? "A MetaApi account is already attached. Generate a fresh link if you need to re-enter your password."
-                      : "Generates a real MetaApi setup link — no password typed here or seen by an admin."}
+                <form onSubmit={(e) => void connectWithCredentials(e)}>
+                  <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
+                    MT5 password (master/trading password, not investor/read-only)
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    autoComplete="off"
+                    style={{ width: "100%", marginBottom: 8 }}
+                  />
+                  <p style={{ color: "var(--dim)", fontSize: 11.5, marginBottom: 12 }}>
+                    Sent directly to MetaApi.cloud to provision your trading connection - never
+                    written to our database or logs, and never seen by an admin.
                   </p>
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    disabled={linking}
-                    onClick={() => void startMetaApiLink()}
-                  >
-                    {linking ? "Generating..." : "⚡ Connect via MetaApi"}
-                  </button>
-                </>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <button type="submit" className="btn-primary" disabled={connecting}>
+                      {connecting ? "Connecting..." : "⚡ Connect"}
+                    </button>
+                    {connection.metaapi_account_id ? (
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={checking}
+                        onClick={() => void checkStatus()}
+                      >
+                        {checking ? "Checking..." : "Check status"}
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
               )}
             </div>
 
@@ -276,18 +266,18 @@ export function Mt5ConnectionModal({
               <p style={{ fontSize: 13, color: "var(--muted)" }}>
                 ProTrixPlus&apos;s production transport (ADR-001) is MetaApi.cloud, not a
                 locally-installed MT5 Expert Advisor — <strong>no file to download or install</strong>.
-                Your broker server and login are saved with ProTrixPlus; your password is entered
-                directly with MetaApi via the &quot;Connect via MetaApi&quot; link, and never passes
-                through ProTrixPlus or an admin.
+                Your broker server, login, and password are submitted here and sent directly to
+                MetaApi.cloud to provision your trading connection. Your password is never written
+                to our database or logs, and no admin can see it.
               </p>
             </div>
             <div className="card" style={{ textAlign: "left" }}>
               <strong style={{ display: "block", marginBottom: 6 }}>This is real and live</strong>
               <p style={{ color: "var(--muted)", fontSize: 12.5 }}>
-                Clicking &quot;Connect via MetaApi&quot; creates a real MetaApi account (with no
-                password) and a real, MetaApi-hosted link. Once you finish entering your credentials
-                there, click &quot;I&apos;ve finished — check status&quot; here to confirm the real
-                connection.
+                Clicking &quot;Connect&quot; creates a real MetaApi account using the credentials
+                you entered and immediately checks its real connection status. Use &quot;Check
+                status&quot; if it doesn&apos;t show connected right away - it can take a few
+                seconds for MetaApi to establish the link to your broker.
               </p>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>

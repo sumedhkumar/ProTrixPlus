@@ -63,16 +63,14 @@ sequenceDiagram
     A->>App: 2a. Create + price a strategy, "Approve & Enable"
     A->>App: 2b. Grant client an entitlement (lot size, multiplier bounds)
     C->>App: 3. Set exposure multiplier (within admin's bounds)
-    C->>App: 4. Submit broker server + login (no password)
-    Note over C,MA: 5. Self-service - no admin, no password to ProTrixPlus
-    C->>App: 5a. Click "Connect via MetaApi"
-    App->>MA: 5b. Create passwordless account + configuration link
-    MA-->>App: 5c. Returns real configuration link
-    App-->>C: 5d. Show link
-    C->>MA: 5e. Open link, enter real MT5 login/password directly with MetaApi
-    C->>App: 5f. Click "I've finished - check status"
-    App->>MA: 5g. Poll real account status
-    MA-->>App: 5h. connectionStatus: CONNECTED
+    C->>App: 4. Submit broker server + login
+    Note over C,MA: 5. Self-service, direct entry - no admin, password never stored
+    C->>App: 5a. Enter MT5 password, click "Connect"
+    App->>MA: 5b. Create account with real login/password (forwarded, not stored)
+    MA-->>App: 5c. Real account id + status
+    App->>MA: 5d. Poll real account status
+    MA-->>App: 5e. connectionStatus: CONNECTED
+    App-->>C: 5f. Show connected status
     TV->>App: 6. Real signal (webhook)
     App->>App: Check entitlement, strategy ON, MT5 attached
     App->>MA: Place real order (client's own account)
@@ -88,8 +86,8 @@ sequenceDiagram
 | 2a | Create/price/approve a strategy in the catalog | Admin | — (admin-only by design) |
 | 2b | Grant the client an entitlement (base lot, multiplier bounds) | Admin | ❌ No payment gateway yet — admin grants after being paid out-of-band |
 | 3 | Client picks their exposure multiplier within the admin's bounds, with a live real lot-size preview | Client | ✅ Yes |
-| 4 | Client submits their broker server + MT5 login number | Client | ✅ Yes (no password field — nothing is stored) |
-| 5 | Client clicks "Connect via MetaApi", ProTrixPlus creates a passwordless MetaApi account and returns a real configuration link; the client opens it and enters their real MT5 password directly on MetaApi's own page — ProTrixPlus and any admin never see it | Client | ✅ Yes — self-service, no admin involved |
+| 4 | Client submits their broker server + MT5 login number | Client | ✅ Yes |
+| 5 | Client enters their real MT5 password directly in the app and clicks "Connect" — the password is forwarded straight to MetaApi's account-creation call and never written to our database or logs, and no admin sees it | Client | ✅ Yes — self-service, no admin involved |
 | 6 | A real TradingView alert fires → webhook → entitlement + connection checked → real order placed on the client's own MetaApi-routed account | System (automatic) | ✅ Fully automatic once 1–5 are done |
 | 7 | Client sees real balance/equity (tagged `LIVE`), and every order attempt in Execution History with a plain-English + technical reason if rejected | Client | ✅ Yes |
 
@@ -98,4 +96,4 @@ sequenceDiagram
 1. **No payment gateway.** Entitlement is admin-granted, trusting that payment happened outside the app. Scoped for a later phase.
 2. **Management actions (closing/modifying an existing position from a TradingView alert) aren't supported yet** — every alert is currently treated as a fresh entry. This mirrors a limitation of the underlying `position_ref` design, not something specific to onboarding.
 
-MetaApi onboarding (step 5) used to be a manual gap — an admin had to handle the client's real MT5 password by hand. That's now resolved: the client generates their own configuration link from the app and enters their password directly with MetaApi. An admin can still attach an existing MetaApi account ID by hand as a fallback/override, but it's no longer required for a new client.
+MetaApi onboarding (step 5) used to be a manual gap — an admin had to handle the client's real MT5 password by hand. That's now resolved: the client enters their password directly in the app, which forwards it straight to MetaApi in the account-creation call — never stored, never logged. (An earlier version of this flow redirected the client to a page hosted by MetaApi itself, so the password never touched our servers at all; that's been replaced with direct in-app entry by request, trading a small amount of additional exposure - the password now transits our API for one request, in memory only - for a simpler, single-page signup experience.) An admin can still attach an existing MetaApi account ID by hand as a fallback/override, but it's no longer required for a new client.

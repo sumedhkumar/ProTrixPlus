@@ -1,0 +1,165 @@
+"""POST /api/v1/me/mt5-connection/connect - direct-entry MT5 onboarding. The
+client's real MT5 password is submitted here and forwarded straight to
+MetaApi's account-creation call - never written to the database (no
+password column exists on Mt5Connection) and never logged."""
+
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+from protrix_contracts.db.models import User, UserRole
+
+from app.config import get_settings
+from app.services import metaapi_client
+
+pytestmark = pytest.mark.dbtest
+
+
+@pytest.fixture
+def client_user(db):
+    user = User(
+        email="connect-client@example.test", display_name="ConnectClient", role=UserRole.USER.value
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@pytest.fixture
+def client_token(identity, client_user):
+    return identity.issue(
+        subject=str(client_user.id),
+        role=UserRole.USER,
+        display_name="ConnectClient",
+        email=client_user.email,
+    )
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_connect_requires_broker_and_login_set_first(client: TestClient, client_token: str) -> None:
+    r = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "s3cret"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 404
+
+
+def test_connect_unavailable_when_metaapi_not_configured(
+    client: TestClient, client_token: str
+) -> None:
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "123"},
+        headers=_auth(client_token),
+    )
+    r = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "s3cret"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 503
+
+
+def test_connect_sends_real_credentials_to_metaapi_and_never_stores_the_password(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "555444"},
+        headers=_auth(client_token),
+    )
+
+    seen_create: dict[str, object] = {}
+
+    def fake_create_account(
+        *, token, name, server, region, magic, platform="mt5", login=None, password=None
+    ):
+        seen_create.update(
+            token=token,
+            name=name,
+            server=server,
+            region=region,
+            magic=magic,
+            login=login,
+            password=password,
+        )
+        return {"id": "creds-account-1"}
+
+    monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_status",
+        lambda **kwargs: {"state": "DEPLOYING", "connectionStatus": "DISCONNECTED"},  # noqa: ARG005
+    )
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "my-real-mt5-password"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["metaapi_account_id"] == "creds-account-1"
+    # The real credentials really were forwarded to MetaApi's create_account call.
+    assert seen_create["login"] == "555444"
+    assert seen_create["password"] == "my-real-mt5-password"
+    assert seen_create["server"] == "MetaQuotes-Demo"
+
+    # Never persisted: no password field exists on the stored connection at all.
+    conn = client.get("/api/v1/me/mt5-connection", headers=_auth(client_token)).json()
+    assert "password" not in conn
+    assert conn["metaapi_account_id"] == "creds-account-1"
+
+
+def test_connect_reuses_existing_account_instead_of_recreating(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "999"},
+        headers=_auth(client_token),
+    )
+
+    create_calls = {"count": 0}
+
+    def fake_create_account(**kwargs):  # noqa: ARG001
+        create_calls["count"] += 1
+        return {"id": "only-once-creds-id"}
+
+    monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_status",
+        lambda **kwargs: {"state": "DEPLOYED", "connectionStatus": "CONNECTED"},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_information",
+        lambda **kwargs: {"balance": 500},  # noqa: ARG005
+    )
+
+    first = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "pw1"},
+        headers=_auth(client_token),
+    )
+    second = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "pw2"},
+        headers=_auth(client_token),
+    )
+    assert first.json()["metaapi_account_id"] == "only-once-creds-id"
+    assert second.json()["metaapi_account_id"] == "only-once-creds-id"
+    assert create_calls["count"] == 1
+    assert second.json()["status"] == "CONNECTED"

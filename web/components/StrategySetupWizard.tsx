@@ -245,7 +245,7 @@ export function StrategySetupWizard({
                 <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>
                   {mt5Connection
                     ? `❌ Not connected yet (status: ${mt5Connection.status}). Finish connecting to proceed.`
-                    : "Connect your MT5 account via MetaApi - you'll enter your password directly with MetaApi, never here."}
+                    : "Connect your MT5 account - your broker server, login, and password are sent directly to MetaApi to set up your trading connection."}
                 </p>
                 <button type="button" className="secondary" onClick={() => setShowMt5Modal(true)}>
                   Connect MT5 Account

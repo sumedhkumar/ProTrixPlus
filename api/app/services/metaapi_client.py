@@ -25,6 +25,11 @@ log = logging.getLogger("api.metaapi_client")
 
 _PROVISIONING_HOST = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
 _TIMEOUT = httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=5.0)
+# Creating an account WITH real credentials makes MetaApi actually attempt to
+# establish the broker connection before responding (unlike every other call
+# here, which only reads an already-provisioned account) - confirmed live,
+# this routinely takes longer than the default 10s read timeout.
+_CREATE_WITH_CREDENTIALS_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=5.0, pool=5.0)
 
 
 class MetaApiError(Exception):
@@ -35,13 +40,15 @@ def _client_api_host(region: str) -> str:
     return f"https://mt-client-api-v1.{region}.agiliumtrade.ai"
 
 
-def _request(method: str, url: str, *, token: str, **kwargs: Any) -> dict[str, Any]:
+def _request(
+    method: str, url: str, *, token: str, timeout: httpx.Timeout = _TIMEOUT, **kwargs: Any
+) -> dict[str, Any]:
     try:
         response = httpx.request(
             method,
             url,
             headers={"auth-token": token, "Accept": "application/json"},
-            timeout=_TIMEOUT,
+            timeout=timeout,
             **kwargs,
         )
     except (httpx.TimeoutException, httpx.TransportError) as exc:
@@ -63,15 +70,39 @@ def get_account_information(*, token: str, region: str, account_id: str) -> dict
 
 
 def create_account(
-    *, token: str, name: str, server: str, region: str, magic: int, platform: str = "mt5"
+    *,
+    token: str,
+    name: str,
+    server: str,
+    region: str,
+    magic: int,
+    platform: str = "mt5",
+    login: str | None = None,
+    password: str | None = None,
 ) -> dict[str, Any]:
-    """Provision a MetaApi account with no login/password - the client fills
-    those in themselves via the configuration link (see below). Real,
-    verified request shape: https://metaapi.cloud/docs/provisioning/api/account/createAccount/
+    """Provision a MetaApi account. With no login/password, the client fills
+    those in themselves via the configuration link (see below) - MetaApi
+    never sees them from us. With login/password, we pass the client's real
+    MT5 credentials straight through in this one request - never logged
+    (httpx's default logging only records method/URL/status, never the
+    body) and never persisted anywhere (no password column on our side).
+    Real, verified request shape:
+    https://metaapi.cloud/docs/provisioning/api/account/createAccount/
     """
     url = f"{_PROVISIONING_HOST}/users/current/accounts"
-    body = {"name": name, "server": server, "platform": platform, "region": region, "magic": magic}
-    return _request("POST", url, token=token, json=body)
+    body: dict[str, Any] = {
+        "name": name,
+        "server": server,
+        "platform": platform,
+        "region": region,
+        "magic": magic,
+    }
+    if login:
+        body["login"] = login
+    if password:
+        body["password"] = password
+    timeout = _CREATE_WITH_CREDENTIALS_TIMEOUT if password else _TIMEOUT
+    return _request("POST", url, token=token, json=body, timeout=timeout)
 
 
 def create_configuration_link(*, token: str, account_id: str, ttl_days: int = 7) -> str:

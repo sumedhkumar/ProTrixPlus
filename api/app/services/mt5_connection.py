@@ -182,6 +182,42 @@ def start_self_service_link(
     return {"configuration_link": link, "metaapi_account_id": conn.metaapi_account_id}
 
 
+def connect_with_credentials(
+    session: Session, user_id: str, *, metaapi_token: str, default_region: str, password: str
+) -> dict[str, Any]:
+    """Direct-entry MT5 onboarding: the client types their real MT5 password
+    into ProTrixPlus, and it's passed straight through to MetaApi in the
+    account-creation request - never written to the database (no password
+    column exists on Mt5Connection), never logged (httpx's default request
+    logging only records method/URL/status, never the request body), and
+    never held longer than this one function call.
+    """
+    conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
+    if conn is None:
+        raise NotFoundError("set your broker server and MT5 login first")
+    if not conn.login or not conn.broker_server:
+        raise NotFoundError("set your broker server and MT5 login first")
+    if not metaapi_token:
+        raise MetaApiNotConfiguredError("MetaApi is not configured on this deployment")
+
+    if not conn.metaapi_account_id:
+        account = metaapi_client.create_account(
+            token=metaapi_token,
+            name=f"protrixplus-{user_id}",
+            server=conn.broker_server,
+            region=conn.metaapi_region or default_region,
+            magic=0,
+            login=conn.login,
+            password=password,
+        )
+        conn.metaapi_account_id = str(account["id"])
+        conn.metaapi_region = conn.metaapi_region or default_region
+        session.commit()
+        session.refresh(conn)
+
+    return check_connection(session, user_id, metaapi_token=metaapi_token)
+
+
 def disconnect_my_connection(session: Session, user_id: str) -> None:
     conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
     if conn is None:

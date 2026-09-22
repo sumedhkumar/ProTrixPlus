@@ -14,7 +14,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
@@ -172,6 +172,38 @@ def start_my_metaapi_link(
             claims.subject,
             metaapi_token=settings.metaapi_token.get_secret_value(),
             default_region=settings.metaapi_default_region,
+        )
+    except mt5_connection.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except mt5_connection.MetaApiNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except metaapi_client.MetaApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+class ConnectMt5WithCredentialsRequest(BaseModel):
+    password: str = Field(min_length=1)
+
+
+@router.post("/me/mt5-connection/connect")
+def connect_my_mt5_with_credentials(
+    body: ConnectMt5WithCredentialsRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Direct-entry MT5 onboarding - the client's real MT5 password is
+    forwarded straight to MetaApi in the account-creation call and never
+    stored or logged on our side (see mt5_connection.connect_with_credentials)."""
+    try:
+        return mt5_connection.connect_with_credentials(
+            db,
+            claims.subject,
+            metaapi_token=settings.metaapi_token.get_secret_value(),
+            default_region=settings.metaapi_default_region,
+            password=body.password,
         )
     except mt5_connection.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

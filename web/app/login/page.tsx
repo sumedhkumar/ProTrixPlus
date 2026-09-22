@@ -9,8 +9,6 @@ type AuthMode = "login" | "signup";
 const DEMO_PASSWORD = "Demo12345!";
 const DEMO_PROFILES: { name: string; email: string; role: "ADMIN" | "CLIENT" }[] = [
   { name: "Alex Vance", email: "alex.vance@protrixplus.test", role: "ADMIN" },
-  { name: "Marcus Sterling", email: "marcus.sterling@apexcapital.co", role: "CLIENT" },
-  { name: "Elena Rostova", email: "elena.rostova@quantfund.net", role: "CLIENT" },
 ];
 
 const FEATURES = [

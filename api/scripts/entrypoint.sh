@@ -24,8 +24,5 @@ PY
 echo "[entrypoint] running migrations..."
 alembic upgrade head
 
-echo "[entrypoint] seeding fake data..."
-python -m app.seed
-
 echo "[entrypoint] exec: $*"
 exec "$@"
