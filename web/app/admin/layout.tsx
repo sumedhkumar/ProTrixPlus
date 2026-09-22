@@ -19,6 +19,7 @@ const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 
 const TABS: TabDef[] = [
   { href: "/admin", label: "Strategy Lifecycle", icon: "▤" },
+  { href: "/admin/alerts", label: "Alert Catalog", icon: "⚑" },
   { href: "/admin/clients", label: "Clients & Risk Caps", icon: "◎" },
   { href: "/admin/payments", label: "Payment Review", icon: "✉" },
   { href: "/admin/webhooks", label: "Webhook Telemetry", icon: "◔" },

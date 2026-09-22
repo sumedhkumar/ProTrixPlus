@@ -19,14 +19,30 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-from protrix_contracts.db.models import PaymentStatus, Strategy, StrategyAssignment, User
+from protrix_contracts.db.models import (
+    AssignmentStatus,
+    AuditEvent,
+    Mt5Connection,
+    Mt5ConnectionStatus,
+    PaymentStatus,
+    Strategy,
+    StrategyAssignment,
+    User,
+)
 from protrix_contracts.money import compute_lot
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 DEFAULT_MULTIPLIER_MIN = Decimal("1")
 DEFAULT_MULTIPLIER_MAX = Decimal("3")
-ALLOWED_CLIENT_MULTIPLIERS = (Decimal("1"), Decimal("2"), Decimal("3"))
+ALLOWED_CLIENT_MULTIPLIERS = (
+    Decimal("1"),
+    Decimal("2"),
+    Decimal("3"),
+    Decimal("5"),
+    Decimal("10"),
+    Decimal("20"),
+)
 
 
 class NotFoundError(Exception):
@@ -51,6 +67,9 @@ def _strategy_dict(s: Strategy) -> dict[str, Any]:
             format(s.profit_share_percent, "f") if s.profit_share_percent is not None else None
         ),
         "base_lot": format(s.base_lot, "f") if s.base_lot is not None else None,
+        "win_rate": format(s.win_rate, "f") if s.win_rate is not None else None,
+        "max_drawdown": format(s.max_drawdown, "f") if s.max_drawdown is not None else None,
+        "description_short": s.description_short,
         "is_active": s.is_active,
     }
 
@@ -76,6 +95,8 @@ def _assignment_dict(a: StrategyAssignment, strategy: Strategy) -> dict[str, Any
         "payment_status": a.payment_status,
         "purchased_at": a.purchased_at.isoformat() if a.purchased_at else None,
         "expires_at": a.expires_at.isoformat() if a.expires_at else None,
+        "confirmed_risk_disclosure": a.confirmed_risk_disclosure,
+        "activated_at": a.activated_at.isoformat() if a.activated_at else None,
     }
 
 
@@ -95,6 +116,9 @@ class StrategyCatalogInput:
     price: Decimal | None = None
     profit_share_percent: Decimal | None = None
     base_lot: Decimal | None = None
+    win_rate: Decimal | None = None
+    max_drawdown: Decimal | None = None
+    description_short: str | None = None
 
 
 def admin_create_strategy(session: Session, body: StrategyCatalogInput) -> dict[str, Any]:
@@ -108,6 +132,9 @@ def admin_create_strategy(session: Session, body: StrategyCatalogInput) -> dict[
         price=body.price,
         profit_share_percent=body.profit_share_percent,
         base_lot=body.base_lot,
+        win_rate=body.win_rate,
+        max_drawdown=body.max_drawdown,
+        description_short=body.description_short,
         # New strategies start hidden from clients (see list_catalog's
         # active_only filter) until an admin has priced it and explicitly
         # approved it via admin_update_strategy(is_active=True).
@@ -134,6 +161,9 @@ def admin_update_strategy(
         "price",
         "profit_share_percent",
         "base_lot",
+        "win_rate",
+        "max_drawdown",
+        "description_short",
     ):
         if field in fields and fields[field] is not None:
             setattr(strategy, field, fields[field])
@@ -231,12 +261,15 @@ def admin_grant_entitlement(
     )
     now = datetime.now(UTC)
     if existing is not None:
+        # Deliberately does NOT touch `status`: an admin re-granting (e.g.
+        # bumping master_lot) for an already-active client must never
+        # silently pause their live trading, and must never reset an
+        # in-progress setup back to SETUP_INCOMPLETE either.
         existing.master_lot = master_lot
         existing.multiplier = multiplier
         existing.multiplier_min = multiplier_min
         existing.multiplier_max = multiplier_max
         existing.payment_status = PaymentStatus.GRANTED.value
-        existing.status = "ACTIVE"
         existing.purchased_at = now
         existing.expires_at = expires_at
         assignment = existing
@@ -248,7 +281,11 @@ def admin_grant_entitlement(
             multiplier=multiplier,
             multiplier_min=multiplier_min,
             multiplier_max=multiplier_max,
-            status="ACTIVE",
+            # New grants require the client to complete the setup wizard
+            # (sizing + MT5 connection + explicit risk confirmation) before
+            # any signal fans out to them - see confirm_start below and
+            # worker/app/fanout.py's ACTIVE-only eligibility query.
+            status=AssignmentStatus.SETUP_INCOMPLETE.value,
             payment_status=PaymentStatus.GRANTED.value,
             purchased_at=now,
             expires_at=expires_at,
@@ -332,7 +369,7 @@ def set_my_multiplier(
     session: Session, *, user_id: str, assignment_id: str, multiplier: Decimal
 ) -> dict[str, Any]:
     if multiplier not in ALLOWED_CLIENT_MULTIPLIERS:
-        raise ValidationError("multiplier must be 1, 2, or 3")
+        raise ValidationError("multiplier must be one of 1, 2, 3, 5, 10, 20")
 
     assignment = session.get(StrategyAssignment, uuid.UUID(assignment_id))
     if assignment is None or str(assignment.user_id) != user_id:
@@ -347,6 +384,50 @@ def set_my_multiplier(
     assert strategy is not None
 
     assignment.multiplier = multiplier
+    session.commit()
+    session.refresh(assignment)
+    return _assignment_dict(assignment, strategy)
+
+
+def confirm_start(session: Session, *, user_id: str, assignment_id: str) -> dict[str, Any]:
+    """Setup Wizard step 3: the client's explicit "Start" confirmation.
+
+    This is the ONLY place a SETUP_INCOMPLETE assignment can become ACTIVE -
+    an admin grant never sets ACTIVE directly (see admin_grant_entitlement).
+    Both preconditions are enforced here, server-side, not just by disabling
+    a button in the UI: the assignment must actually be awaiting setup, and
+    the client's MT5 connection must actually be CONNECTED (real, via
+    MetaApi - see mt5_connection.check_connection), never assumed.
+    """
+    assignment = session.get(StrategyAssignment, uuid.UUID(assignment_id))
+    if assignment is None or str(assignment.user_id) != user_id:
+        raise NotFoundError(f"assignment {assignment_id} not found")
+    if assignment.status != AssignmentStatus.SETUP_INCOMPLETE.value:
+        raise ValidationError(
+            f"assignment is '{assignment.status}', not awaiting setup - nothing to confirm"
+        )
+
+    connection = session.scalar(
+        select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id))
+    )
+    if connection is None or connection.status != Mt5ConnectionStatus.CONNECTED.value:
+        raise ValidationError("connect your MT5 account before starting this strategy")
+
+    strategy = session.get(Strategy, assignment.strategy_id)
+    assert strategy is not None
+
+    assignment.confirmed_risk_disclosure = True
+    assignment.activated_at = datetime.now(UTC)
+    assignment.status = AssignmentStatus.ACTIVE.value
+    session.add(
+        AuditEvent(
+            event_type="assignment.activated",
+            entity_type="assignment",
+            entity_id=str(assignment.id),
+            actor=user_id,
+            data={"strategy_id": str(strategy.id)},
+        )
+    )
     session.commit()
     session.refresh(assignment)
     return _assignment_dict(assignment, strategy)

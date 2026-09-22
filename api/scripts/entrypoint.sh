@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Migrate, seed (idempotent), then exec the given command (uvicorn by default).
+# Migrate, then exec the given command (uvicorn by default). No auto-seeding -
+# fixture users are not created on deploy; use `python -m app.seed` manually
+# for local dev if you want them.
 set -euo pipefail
 
 echo "[entrypoint] waiting for postgres..."
@@ -23,9 +25,6 @@ PY
 
 echo "[entrypoint] running migrations..."
 alembic upgrade head
-
-echo "[entrypoint] seeding fake data..."
-python -m app.seed
 
 echo "[entrypoint] exec: $*"
 exec "$@"

@@ -3,7 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import type { MyAssignmentView, StrategyView } from "@/lib/api";
+import type { Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
+
+import { StrategySetupWizard } from "./StrategySetupWizard";
+
+const MULTIPLIERS = [1, 2, 3, 5, 10, 20] as const;
+type Multiplier = (typeof MULTIPLIERS)[number];
 
 // Deterministic (per-strategy-id, not random-per-render) illustrative stats.
 // No real trade-performance analytics or AI regime model exist yet - always
@@ -39,15 +44,18 @@ function demoStats(seed: string): {
 export function StrategyMarketplaceCard({
   strategy,
   assignment,
+  mt5Connection,
 }: {
   strategy: StrategyView;
   assignment: MyAssignmentView | undefined;
+  mt5Connection: Mt5ConnectionView | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMultiplier, setSelectedMultiplier] = useState<1 | 2 | 3>(
-    (Number(assignment?.multiplier ?? 1) as 1 | 2 | 3) || 1,
+  const [showWizard, setShowWizard] = useState(false);
+  const [selectedMultiplier, setSelectedMultiplier] = useState<Multiplier>(
+    (Number(assignment?.multiplier ?? 1) as Multiplier) || 1,
   );
   const [previewLot, setPreviewLot] = useState<string | null>(
     assignment ? assignment.effective_lot : null,
@@ -173,8 +181,8 @@ export function StrategyMarketplaceCard({
         <span>Exposure multiplier</span>
         <span>Base lot: {masterLot ?? "—"}</span>
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {([1, 2, 3] as const).map((m) => {
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        {MULTIPLIERS.map((m) => {
           const active = selectedMultiplier === m;
           const inBounds = m >= Number(multiplierMin) && m <= Number(multiplierMax);
           return (
@@ -184,7 +192,7 @@ export function StrategyMarketplaceCard({
               className={active ? "btn-primary" : "secondary"}
               disabled={!inBounds || busy}
               onClick={() => setSelectedMultiplier(m)}
-              style={{ flex: 1 }}
+              style={{ flex: "1 1 60px" }}
             >
               {m}X
             </button>
@@ -199,16 +207,37 @@ export function StrategyMarketplaceCard({
         </span>
       </div>
 
-      {assignment ? (
-        <button
-          type="button"
-          className="btn-primary"
-          disabled={!sizingChanged || busy}
-          onClick={() => void updateSizing()}
-          style={{ width: "100%" }}
-        >
-          {busy ? "Saving..." : `⟳ Update Sizing (${selectedMultiplier}X)`}
-        </button>
+      {assignment?.status === "SETUP_INCOMPLETE" ? (
+        <>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => setShowWizard(true)}
+            style={{ width: "100%" }}
+          >
+            ⚡ Complete Setup →
+          </button>
+          <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
+            Access granted - finish sizing, connect your MT5 account, and confirm to go live.
+          </p>
+        </>
+      ) : assignment ? (
+        <>
+          {assignment.status === "ACTIVE" ? (
+            <span className="badge-pill badge-green" style={{ marginBottom: 8, display: "inline-block" }}>
+              🟢 Live
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={!sizingChanged || busy}
+            onClick={() => void updateSizing()}
+            style={{ width: "100%" }}
+          >
+            {busy ? "Saving..." : `⟳ Update Sizing (${selectedMultiplier}X)`}
+          </button>
+        </>
       ) : (
         <>
           <button
@@ -226,6 +255,15 @@ export function StrategyMarketplaceCard({
           </p>
         </>
       )}
+
+      {showWizard && assignment ? (
+        <StrategySetupWizard
+          strategyName={strategy.name}
+          assignment={assignment}
+          mt5Connection={mt5Connection}
+          onClose={() => setShowWizard(false)}
+        />
+      ) : null}
 
       <div
         style={{

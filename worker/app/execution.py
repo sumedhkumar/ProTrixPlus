@@ -15,8 +15,9 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from protrix_contracts.db.models import AuditEvent, Execution, OrderIntent
+from protrix_contracts.db.models import AuditEvent, Execution, Mt5Connection, OrderIntent
 from protrix_contracts.lifecycle import ExecutionState, assert_transition
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.adapters.base import ExecutionAdapter, ExecutionTimeout, OrderIntentDTO
@@ -62,15 +63,31 @@ def _advance(
     session.flush()
 
 
-def _account_ref(intent: OrderIntent) -> str:
-    return f"acct-{intent.user_id}"
+def _resolve_account_ref(session: Session, intent: OrderIntent, adapter_name: str) -> str | None:
+    """The transport account reference passed to ``adapter.place``/``sync_positions``.
+
+    ``mock`` and the native ``mt5`` adapter (single terminal, single account)
+    don't need per-user routing - a synthetic label is enough. ``metaapi`` is
+    genuinely multi-tenant: each client's signal must land on *their own*
+    MetaApi account, never a shared one. Returns ``None`` when that adapter
+    needs a real connection this user doesn't have yet, so the caller can
+    reject cleanly instead of dispatching into a broker call that can't route
+    anywhere.
+    """
+    if adapter_name != "metaapi":
+        return f"acct-{intent.user_id}"
+
+    conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == intent.user_id))
+    if conn is None or not conn.metaapi_account_id or not conn.metaapi_region:
+        return None
+    return f"{conn.metaapi_region}:{conn.metaapi_account_id}"
 
 
-def _dto(intent: OrderIntent, client_order_id: str) -> OrderIntentDTO:
+def _dto(intent: OrderIntent, client_order_id: str, account_ref: str) -> OrderIntentDTO:
     signal = intent.signal
     return OrderIntentDTO(
         client_order_id=client_order_id,
-        account_ref=_account_ref(intent),
+        account_ref=account_ref,
         symbol=intent.symbol,
         side="SELL" if intent.action.upper() == "SELL" else "BUY",
         volume=intent.computed_lot,
@@ -80,6 +97,9 @@ def _dto(intent: OrderIntent, client_order_id: str) -> OrderIntentDTO:
         take_profit=signal.take_profit if signal else None,
         position_ref=signal.position_ref if signal else None,
         close_fraction=signal.close_fraction if signal else None,
+        user_id=str(intent.user_id),
+        strategy_key=signal.strategy_key if signal else None,
+        strategy_version=signal.strategy_version if signal else None,
     )
 
 
@@ -97,12 +117,24 @@ def drive_new_execution(
     session.add(execution)
     session.flush()
 
+    account_ref = _resolve_account_ref(session, intent, adapter.name)
+    if account_ref is None:
+        execution.last_error = f"no {adapter.name} account connected for this user"
+        _advance(session, execution, ExecutionState.REJECTED)
+        log.warning(
+            "execution %s REJECTED: no %s account connected for user=%s",
+            execution.id,
+            adapter.name,
+            intent.user_id,
+        )
+        return execution
+
     _advance(session, execution, ExecutionState.INTENT_CREATED, ts_attr="intent_created_at")
     _advance(session, execution, ExecutionState.QUEUED, ts_attr="queued_at")
     _advance(session, execution, ExecutionState.DISPATCHED, ts_attr="dispatched_at")
 
     try:
-        result = adapter.place(_dto(intent, execution.client_order_id))
+        result = adapter.place(_dto(intent, execution.client_order_id, account_ref))
     except ExecutionTimeout as exc:
         execution.last_error = str(exc)
         _advance(session, execution, ExecutionState.UNKNOWN)
@@ -112,8 +144,16 @@ def drive_new_execution(
 
     execution.ticket_id = result.ticket_id
     execution.deal_id = result.deal_id
+    if result.entry_price is not None:
+        execution.entry_price = result.entry_price
     if result.status == "REJECTED":
+        # PlaceResult.raw carries the adapter's real rejection reason (broker
+        # error message, retcode, etc.) - surface it instead of leaving
+        # last_error blank, or a REJECTED execution is undebuggable.
+        if result.raw:
+            execution.last_error = "; ".join(f"{k}={v}" for k, v in result.raw.items())
         _advance(session, execution, ExecutionState.REJECTED)
+        log.info("execution %s REJECTED: %s", execution.id, execution.last_error)
         return execution
 
     _advance(session, execution, ExecutionState.ACKNOWLEDGED, ts_attr="acknowledged_at")
@@ -137,7 +177,15 @@ def reconcile_unknown(
         raise ValueError(f"reconcile called on non-UNKNOWN execution {execution.id}")
 
     intent = session.get(OrderIntent, execution.order_intent_id)
-    account_ref = _account_ref(intent) if intent else ""
+    account_ref = _resolve_account_ref(session, intent, adapter.name) if intent else None
+    if account_ref is None:
+        # Only reachable if the account was resolvable at dispatch time (that
+        # gate runs before DISPATCHED) but stopped being so before reconcile -
+        # e.g. an admin detached the connection in between. Nothing to
+        # reconcile against; leave it UNKNOWN (unchanged) rather than guess.
+        execution.last_error = f"reconcile: no {adapter.name} account to reconcile against"
+        log.error("execution %s: account_ref no longer resolvable for reconcile", execution.id)
+        return execution
     positions = adapter.sync_positions(account_ref)
     match = next((p for p in positions if p.client_order_id == execution.client_order_id), None)
 

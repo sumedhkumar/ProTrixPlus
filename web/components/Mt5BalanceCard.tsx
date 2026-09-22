@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import type { Mt5ConnectionView } from "@/lib/api";
+import type { LiveBalance, Mt5ConnectionView } from "@/lib/api";
 
 import { Mt5ConnectionModal } from "./Mt5ConnectionModal";
 
@@ -10,10 +10,12 @@ export function Mt5BalanceCard({
   connection,
   displayName,
   demoBalance,
+  liveBalance,
 }: {
   connection: Mt5ConnectionView | null;
   displayName: string;
   demoBalance: string;
+  liveBalance: LiveBalance;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -26,9 +28,21 @@ export function Mt5BalanceCard({
             Config
           </button>
         </div>
-        <div className="stat-value">
-          ${demoBalance} <span className="badge-pill badge-demo">DEMO</span>
-        </div>
+        {liveBalance.available ? (
+          <div className="stat-value">
+            ${liveBalance.balance?.toFixed(2)}{" "}
+            <span className="badge-pill badge-green" title="Real balance, read from MetaApi.cloud">
+              LIVE
+            </span>
+          </div>
+        ) : (
+          <div className="stat-value">
+            ${demoBalance}{" "}
+            <span className="badge-pill badge-demo" title={liveBalance.reason}>
+              DEMO
+            </span>
+          </div>
+        )}
         {connection ? (
           <div className="stat-sub">
             <span>

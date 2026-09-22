@@ -50,13 +50,23 @@ class Settings(BaseSettings):
     # Outbound email (trial temp-password, payment-proof admin notification,
     # forgot-password reset link). "mock" (default) never sends real mail -
     # local/CI safety. "smtp" is Gmail by default (see infra/.env.example).
-    email_backend: Literal["smtp", "mock"] = "mock"
+    # "brevo" sends over HTTPS instead, which is what production uses: Render
+    # blocks outbound SMTP ports on free web services, so "smtp" cannot
+    # deliver from there. Both honour smtp_from_name / smtp_from_address.
+    email_backend: Literal["smtp", "brevo", "mock"] = "mock"
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587
     smtp_username: str = ""
     smtp_password: SecretStr = SecretStr("")
     smtp_from_name: str = "ProTrixPlus"
     smtp_from_address: str = ""
+    # Brevo API key (email_backend="brevo"). The sender address above must be
+    # verified under Senders in the Brevo dashboard or sends are rejected.
+    brevo_api_key: SecretStr = SecretStr("")
+    # Google OAuth 2.0 client ID (not a secret - it's embedded in the frontend
+    # JS bundle regardless). Used to verify the "aud" claim on Google ID
+    # tokens (app/identity/google_verifier.py). Empty disables Google sign-in.
+    google_oauth_client_id: str = ""
     # Where payment-proof (UTR) submissions get emailed for human review.
     admin_notify_email: str = ""
     # Used to build the password-reset link sent to a user's inbox.
@@ -73,6 +83,17 @@ class Settings(BaseSettings):
     payment_upi_id: str = ""
     payment_qr_code_url: str = ""
 
+    # MetaApi.cloud (ADR-001) - same token the worker's MetaApiExecutionAdapter
+    # uses, so the API can also make its own calls (live balance, real
+    # self-service account provisioning) without needing a second credential.
+    metaapi_token: SecretStr = SecretStr("")
+    metaapi_default_region: str = "london"
+
+    # Encryption key for RealCredentialVault (api/app/vault/real.py). Unused
+    # today - nothing constructs that vault yet - but read from here once
+    # something does. Generate with Fernet.generate_key().
+    vault_encryption_key: SecretStr = SecretStr("")
+
     @property
     def is_production(self) -> bool:
         return self.app_env == "prod"
@@ -84,6 +105,9 @@ class Settings(BaseSettings):
             self.webhook_shared_secret.get_secret_value(),
             self.tradingview_webhook_secret.get_secret_value(),
             self.smtp_password.get_secret_value(),
+            self.brevo_api_key.get_secret_value(),
+            self.metaapi_token.get_secret_value(),
+            self.vault_encryption_key.get_secret_value(),
         ]
         # Also redact any password embedded in the DB / Redis URLs.
         for url in (self.database_url, self.redis_url):

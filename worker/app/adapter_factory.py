@@ -24,4 +24,12 @@ def build_adapter(
         from app.adapters.mt5 import MetaTrader5ExecutionAdapter
 
         return MetaTrader5ExecutionAdapter(session_factory, config)
-    raise ValueError(f"unknown execution adapter {name!r}; supported adapters are 'mock' and 'mt5'")
+    if name == "metaapi":
+        if config is None:
+            raise ValueError("the metaapi adapter requires worker configuration")
+        from app.adapters.metaapi import MetaApiExecutionAdapter
+
+        return MetaApiExecutionAdapter(session_factory, config)
+    raise ValueError(
+        f"unknown execution adapter {name!r}; supported adapters are 'mock', 'mt5', and 'metaapi'"
+    )

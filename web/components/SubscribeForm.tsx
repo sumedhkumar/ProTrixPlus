@@ -106,7 +106,7 @@ export function SubscribeForm({
 
       <div>
         <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-          ✉ Email
+          Email
         </label>
         <input
           type="email"
@@ -120,7 +120,7 @@ export function SubscribeForm({
 
       <div>
         <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-          📱 Phone / WhatsApp
+          Phone / WhatsApp
         </label>
         <PhoneInput onChange={setPhone} required />
       </div>

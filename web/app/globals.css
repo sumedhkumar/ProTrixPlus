@@ -365,14 +365,14 @@ select:focus {
 }
 
 .login-split {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--auth-header-h));
   display: grid;
   grid-template-columns: 1.1fr 1fr;
-  gap: 48px;
-  max-width: 1200px;
+  gap: 64px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 64px 24px;
-  align-items: center;
+  padding: 56px 24px 64px;
+  align-items: start;
 }
 @media (max-width: 900px) {
   .login-split {
@@ -403,10 +403,19 @@ select:focus {
   font-size: 11px;
 }
 
+.auth-tab-group {
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--panel-border);
+}
+
 .auth-tab {
   flex: 1;
   padding: 10px;
-  border-radius: 8px;
+  border-radius: 10px;
   text-align: center;
   font-weight: 700;
   font-size: 13px;
@@ -414,11 +423,47 @@ select:focus {
   border: 1px solid transparent;
   color: var(--muted);
   background: none;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+    transform 0.15s ease;
+}
+.auth-tab:hover:not(.active) {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.05);
+}
+.auth-tab:active {
+  transform: scale(0.97);
 }
 .auth-tab.active {
   background: var(--teal-dim);
   color: var(--teal);
   border-color: rgba(45, 212, 191, 0.35);
+}
+
+/* ---------- ghost/outline button: the secondary CTA alongside btn-primary
+   (e.g. "Sign In" next to "Start Free Trial") ---------- */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background-color 0.2s ease, transform 0.2s ease;
+}
+.btn-ghost:hover {
+  border-color: var(--accent-blue);
+  background: rgba(34, 211, 238, 0.08);
+  transform: translateY(-2px);
+}
+.btn-ghost:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.1s;
 }
 
 .identity-chip {
@@ -536,6 +581,11 @@ select:focus {
   border: 1px solid var(--card-border);
   border-radius: var(--radius);
   padding: 18px 20px;
+  transition: border-color 0.15s ease;
+}
+.auth-shell .card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 40%), var(--card);
+  box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.6);
 }
 .card-head {
   display: flex;
@@ -669,8 +719,8 @@ select:focus {
   padding: 72px 20px 48px;
   display: grid;
   grid-template-columns: 1.1fr 1fr;
-  gap: 48px;
-  align-items: center;
+  gap: 64px;
+  align-items: start;
 }
 @media (max-width: 900px) {
   .landing-hero {
@@ -724,8 +774,11 @@ select:focus {
   position: relative;
 }
 .pricing-card.featured {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 1px var(--teal);
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--card), var(--card)) padding-box,
+    linear-gradient(135deg, var(--accent-blue), var(--accent-purple)) border-box;
+  box-shadow: 0 0 32px -14px rgba(124, 108, 246, 0.55);
 }
 .pricing-card-price {
   font-size: 30px;
@@ -803,7 +856,7 @@ select:focus {
 
 /* ---------- centered single-action auth pages (forgot/reset/set password) ---------- */
 .auth-center {
-  min-height: 100vh;
+  min-height: calc(100vh - var(--auth-header-h));
   display: flex;
   align-items: center;
   justify-content: center;
@@ -816,6 +869,653 @@ select:focus {
 .auth-center-header {
   text-align: center;
   margin-bottom: 24px;
+}
+
+/* ---------- auth shell: shared chrome for every pre-signin page ---------- */
+:root {
+  --auth-header-h: 76px;
+}
+
+.auth-shell {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+}
+
+.auth-shell-glow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(680px 420px at 12% 0%, rgba(34, 211, 238, 0.14) 0%, transparent 60%),
+    radial-gradient(620px 460px at 88% 18%, rgba(124, 108, 246, 0.14) 0%, transparent 60%);
+}
+
+.auth-shell-header {
+  height: var(--auth-header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 28px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.auth-shell-main {
+  position: relative;
+}
+
+.brandmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: var(--fg);
+}
+.brandmark-icon {
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  box-shadow: 0 4px 16px rgba(124, 108, 246, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.brandmark-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.brandmark-name {
+  font-size: 16px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.brandmark-tagline {
+  font-size: 11px;
+  color: var(--muted);
+}
+.brandmark-badge {
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+/* ---------- pre-signin content: less boxy, more aligned ---------- */
+.hero-heading {
+  font-size: 38px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 18px 0 14px;
+}
+.hero-copy {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: 460px;
+  margin: 0 0 36px;
+}
+
+.feature-list {
+  display: grid;
+  gap: 22px;
+  margin-bottom: 32px;
+}
+.feature-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.feature-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 16px;
+}
+.feature-icon.teal {
+  background: var(--teal-dim);
+  color: var(--teal);
+}
+.feature-icon.purple {
+  background: rgba(124, 108, 246, 0.15);
+  color: #b3a6ff;
+}
+.feature-row-title {
+  font-weight: 700;
+  font-size: 14.5px;
+  margin-bottom: 3px;
+}
+.feature-row-desc {
+  color: var(--muted);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+/* the one element per page that should still read as a distinct surface -
+   softer than .card: near-invisible border, shadow does the separating */
+.form-panel {
+  position: relative;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 18px;
+  padding: 32px;
+  box-shadow: 0 24px 60px -32px rgba(0, 0, 0, 0.7);
+}
+.form-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 2px;
+  border-radius: 0 0 4px 4px;
+  background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
+  opacity: 0.85;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--fg);
+  margin: 0 0 22px;
+}
+.panel-heading::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  box-shadow: 0 0 12px rgba(124, 108, 246, 0.7);
+}
+
+.inline-divider {
+  border-top: 1px solid var(--panel-border);
+  margin-top: 22px;
+  padding-top: 18px;
+}
+.inline-divider-label {
+  display: block;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  margin-bottom: 10px;
+}
+
+/* ---------- "or" divider between an SSO button and the classic form ---------- */
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--panel-border);
+}
+
+/* Google's rendered button lives in a cross-origin iframe, so only the
+   wrapper box can be styled - a matching hover lift keeps it visually
+   consistent with .btn-ghost / .demo-profile-btn next to it. */
+.google-btn-wrap {
+  display: flex;
+  justify-content: center;
+  transition: transform 0.2s ease, filter 0.2s ease;
+}
+.google-btn-wrap:hover {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 6px 18px rgba(124, 108, 246, 0.25));
+}
+.google-btn-wrap[data-disabled="true"] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+/* ---------- auth alert (Google no-account/already-exists, form errors) ----------
+   Same visual family as .form-panel (subtle border, soft shadow) so it reads
+   as part of the page rather than a bolted-on toast, but with enough color to
+   actually get noticed instead of the plain red text it replaced. */
+.auth-alert {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 40px 14px 14px;
+  border-radius: 12px;
+  border: 1px solid;
+  box-shadow: 0 14px 34px -20px rgba(0, 0, 0, 0.65);
+}
+.auth-alert.error {
+  border-color: rgba(240, 87, 107, 0.35);
+  background: rgba(240, 87, 107, 0.08);
+}
+.auth-alert.info {
+  border-color: rgba(34, 211, 238, 0.35);
+  background: rgba(34, 211, 238, 0.08);
+}
+.auth-alert-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-size: 13px;
+  font-weight: 800;
+  font-style: normal;
+}
+.auth-alert.error .auth-alert-icon {
+  background: rgba(240, 87, 107, 0.18);
+  color: var(--bad);
+}
+.auth-alert.info .auth-alert-icon {
+  background: rgba(34, 211, 238, 0.18);
+  color: var(--accent);
+}
+.auth-alert-body {
+  flex: 1;
+  min-width: 0;
+}
+.auth-alert-message {
+  font-size: 13px;
+  color: var(--fg);
+  line-height: 1.5;
+  margin: 0;
+}
+.auth-alert-action {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.auth-alert-action:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-alert-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+.auth-alert-close:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.auth-alert-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(34, 211, 238, 0.25);
+  border-top-color: var(--accent);
+  animation: authSpin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .auth-alert {
+    animation: authAlertIn 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes authAlertIn {
+    from {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+@keyframes authSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-alert-spinner {
+    animation-duration: 1.4s;
+  }
+}
+
+/* ---------- sign-in <-> create-account mode swap ----------
+   Only the parts that differ between modes are swapped; the tab group, the
+   Google button and the "or" divider stay mounted so nothing flickers.
+   .auth-swap animates its height so the panel never snaps when the field
+   count changes; it is only clipped while that height is in motion, so focus
+   rings aren't cut off at rest. */
+.auth-swap {
+  transition: height 0.44s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.auth-swap[data-animating="true"] {
+  overflow: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-swap {
+    transition: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes authSwapIn {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+      filter: blur(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+  }
+
+  .auth-swap-content {
+    animation: authSwapIn 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* The pitch column reuses the page's entrance animations, but their
+     original delays (up to 0.62s) are tuned for a first paint and read as
+     sluggish on a toggle - these overrides only apply once a toggle has
+     actually happened, so the initial load is untouched. */
+  .auth-swap-pitch .badge-pill:not(.brandmark-badge),
+  .auth-swap-pitch .hero-heading,
+  .auth-swap-pitch .hero-copy,
+  .auth-swap-pitch .feature-row {
+    animation-duration: 0.46s;
+  }
+  .auth-swap-pitch .badge-pill:not(.brandmark-badge) {
+    animation-delay: 0.02s;
+  }
+  .auth-swap-pitch .hero-heading {
+    animation-delay: 0.07s;
+  }
+  .auth-swap-pitch .hero-copy {
+    animation-delay: 0.12s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(1) {
+    animation-delay: 0.17s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(2) {
+    animation-delay: 0.22s;
+  }
+  .auth-swap-pitch .feature-row:nth-child(3) {
+    animation-delay: 0.27s;
+  }
+}
+
+.steps-list {
+  display: grid;
+  gap: 24px;
+}
+.step-row {
+  display: flex;
+  gap: 14px;
+}
+.step-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+}
+.step-num {
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 12px;
+  flex: none;
+  box-shadow: 0 3px 10px rgba(124, 108, 246, 0.35);
+}
+.step-line {
+  flex: 1;
+  width: 1px;
+  min-height: 18px;
+  background: var(--panel-border);
+  margin: 4px 0;
+}
+.step-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.step-desc {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 2px;
+  max-width: 400px;
+}
+
+/* ---------- pre-signin: premium motion (entrance, ambient, hover) ---------- */
+.auth-shell .btn-primary {
+  position: relative;
+  isolation: isolate;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  background-size: 160% 160%;
+  background-position: 0% 50%;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease,
+    background-position 0.4s ease;
+}
+.auth-shell .btn-primary:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 16px 36px rgba(124, 108, 246, 0.5);
+  background-position: 100% 50%;
+}
+.auth-shell .btn-primary:active {
+  transform: translateY(0) scale(0.97);
+  transition-duration: 0.1s;
+}
+
+.feature-icon {
+  transition: transform 0.2s ease;
+}
+.feature-row {
+  transition: transform 0.2s ease;
+}
+.feature-row:hover {
+  transform: translateX(4px);
+}
+.feature-row:hover .feature-icon {
+  transform: scale(1.12);
+}
+
+.demo-profile-btn {
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.demo-profile-btn:hover {
+  transform: translateY(-2px);
+}
+
+.auth-shell input,
+.auth-shell select {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.auth-shell input:focus,
+.auth-shell select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.16);
+}
+
+.brandmark-badge {
+  position: relative;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes fadeSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(26px) scale(0.97);
+      filter: blur(5px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  .auth-shell .badge-pill:not(.brandmark-badge),
+  .auth-shell .hero-heading,
+  .auth-shell .hero-copy {
+    opacity: 0;
+    animation: fadeSlideUp 0.85s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .auth-shell .badge-pill:not(.brandmark-badge) {
+    animation-delay: 0.05s;
+  }
+  .auth-shell .hero-heading {
+    animation-delay: 0.16s;
+  }
+  .auth-shell .hero-copy {
+    animation-delay: 0.28s;
+  }
+
+  .feature-row,
+  .step-row {
+    opacity: 0;
+    animation: fadeSlideUp 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .feature-row:nth-child(1) {
+    animation-delay: 0.38s;
+  }
+  .feature-row:nth-child(2) {
+    animation-delay: 0.5s;
+  }
+  .feature-row:nth-child(3) {
+    animation-delay: 0.62s;
+  }
+  .step-row:nth-child(1) {
+    animation-delay: 0.3s;
+  }
+  .step-row:nth-child(2) {
+    animation-delay: 0.42s;
+  }
+  .step-row:nth-child(3) {
+    animation-delay: 0.54s;
+  }
+  .step-row:nth-child(4) {
+    animation-delay: 0.66s;
+  }
+
+  .form-panel {
+    opacity: 0;
+    animation: fadeSlideUp 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.22s forwards;
+  }
+
+  @keyframes auroraDrift {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+      opacity: 0.85;
+    }
+    50% {
+      transform: translate(5%, -7%) scale(1.15);
+      opacity: 1;
+    }
+  }
+  .auth-shell-glow {
+    animation: auroraDrift 13s ease-in-out infinite;
+  }
+
+  /* shimmer sweep across the brand badge, like a light catching glass */
+  .brandmark-badge::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 45%;
+    height: 100%;
+    background: linear-gradient(115deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+    animation: badgeShimmer 3s ease-in-out infinite;
+  }
+  @keyframes badgeShimmer {
+    0% {
+      left: -60%;
+    }
+    45%,
+    100% {
+      left: 130%;
+    }
+  }
+
+  /* breathing glow on the panel-heading accent dot */
+  @keyframes dotPulse {
+    0%,
+    100% {
+      box-shadow: 0 0 8px rgba(124, 108, 246, 0.55);
+      transform: scale(1);
+    }
+    50% {
+      box-shadow: 0 0 16px rgba(124, 108, 246, 1);
+      transform: scale(1.25);
+    }
+  }
+  .panel-heading::before {
+    animation: dotPulse 2.2s ease-in-out infinite;
+  }
+
+  /* pulsing halo ring around primary CTAs */
+  @keyframes ctaPulse {
+    0% {
+      opacity: 0.6;
+      transform: scale(1);
+    }
+    70%,
+    100% {
+      opacity: 0;
+      transform: scale(1.14);
+    }
+  }
+  .auth-shell .btn-primary::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    z-index: -1;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+    animation: ctaPulse 2.4s ease-in-out infinite;
+  }
 }
 
 /* ---------- subscription status ---------- */

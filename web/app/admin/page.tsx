@@ -1,5 +1,5 @@
 import { AdminStrategyCatalog } from "@/components/AdminStrategyCatalog";
-import { apiFetch, type StrategyView } from "@/lib/api";
+import { apiFetch, type AlertView, type StrategyView } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 export default async function StrategyLifecyclePage() {
   const token = getToken()!;
   const strategies = await apiFetch<StrategyView[]>("/api/v1/admin/strategies", token);
+  const alerts = await apiFetch<AlertView[]>("/api/v1/admin/alerts", token).catch(() => []);
 
   return (
     <>
@@ -15,7 +16,7 @@ export default async function StrategyLifecyclePage() {
         Centrally publish, price, and toggle strategies ON/OFF. TradingView alert mapping is
         available per strategy without exposing the webhook secret.
       </p>
-      <AdminStrategyCatalog strategies={strategies} />
+      <AdminStrategyCatalog strategies={strategies} alerts={alerts} />
     </>
   );
 }

@@ -29,7 +29,10 @@ export function ResultsShowcase() {
           <div key={r.strategy} className="card">
             <div className="card-head">
               <span className="card-title">{r.strategy}</span>
-              <span className="badge-pill badge-neutral">{r.timeframe}</span>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                <span className="badge-sentiment bullish">▲ Profitable</span>
+                <span className="badge-pill badge-neutral">{r.timeframe}</span>
+              </div>
             </div>
             <div className="stat-value green">{r.winRate}</div>
             <div className="stat-sub-cols">

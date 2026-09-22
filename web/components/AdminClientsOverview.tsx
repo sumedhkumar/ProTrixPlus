@@ -1,5 +1,7 @@
 import type { AdminAssignment, AdminMt5ConnectionView, AdminUser } from "@/lib/api";
 
+import { MetaApiAttachCell } from "./MetaApiAttachCell";
+
 export function AdminClientsOverview({
   users,
   assignments,
@@ -28,6 +30,7 @@ export function AdminClientsOverview({
                 <th>Client</th>
                 <th>MT5 bridge</th>
                 <th>Bridge state</th>
+                <th>MetaApi (real order routing)</th>
                 <th>Active subscriptions</th>
                 <th>Account state</th>
                 <th>Kill switch</th>
@@ -56,6 +59,9 @@ export function AdminClientsOverview({
                       ) : (
                         <span className="badge-pill badge-neutral">NOT CONFIGURED</span>
                       )}
+                    </td>
+                    <td>
+                      <MetaApiAttachCell connection={mt5} />
                     </td>
                     <td>
                       {clientAssignments.length === 0

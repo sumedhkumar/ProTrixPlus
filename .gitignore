@@ -23,6 +23,7 @@ web/test-results/
 .env
 infra/.env
 *.local
+metapai_account.json
 
 # Local db backups (see infra/scripts/backup-db.sh) - may contain real data
 infra/backups/*.dump

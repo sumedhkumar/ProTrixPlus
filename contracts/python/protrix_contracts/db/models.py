@@ -51,6 +51,11 @@ class UserRole(str, enum.Enum):
 
 
 class AssignmentStatus(str, enum.Enum):
+    # A brand-new admin grant starts here - not eligible for fan-out
+    # (worker/app/fanout.py only admits ACTIVE) until the client completes
+    # the setup wizard (sizing + MT5 connection) and explicitly confirms the
+    # risk disclosure via POST /me/assignments/{id}/confirm-start.
+    SETUP_INCOMPLETE = "SETUP_INCOMPLETE"
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"
 
@@ -173,6 +178,13 @@ class Strategy(Base):
             name="profit_share_percent_in_range",
         ),
         CheckConstraint("base_lot IS NULL OR base_lot > 0", name="base_lot_positive"),
+        CheckConstraint(
+            "win_rate IS NULL OR (win_rate >= 0 AND win_rate <= 100)", name="win_rate_in_range"
+        ),
+        CheckConstraint(
+            "max_drawdown IS NULL OR (max_drawdown >= 0 AND max_drawdown <= 100)",
+            name="max_drawdown_in_range",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -189,9 +201,56 @@ class Strategy(Base):
     profit_share_percent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     base_lot: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
+    # Marketing/catalog-display fields. `description` above is the long
+    # description; `description_short` is the one-liner shown on the catalog
+    # card. Neither win_rate nor max_drawdown feed sizing/eligibility logic -
+    # display only.
+    win_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    max_drawdown: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    description_short: Mapped[str | None] = mapped_column(String(240))
+
     created_at: Mapped[datetime] = _created_at()
 
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="strategy")
+    alerts: Mapped[list[Alert]] = relationship(back_populates="strategy")
+
+
+class Alert(Base):
+    """An admin-authored TradingView alert config (PRD Feature 1).
+
+    TradingView has no API that pushes "alert created/edited" events - only
+    live BUY/SELL webhook signals arrive (see ``Signal`` below). So this is
+    captured the other way round from how it might first sound: the admin
+    defines the alert's symbol/lot size/timeframe here, in ProTrixPlus, then
+    pastes the resulting config into TradingView's own alert dialog. One or
+    more Alerts are bundled into a Strategy (Feature 2) for catalog display -
+    bundling never changes how an incoming signal is matched to a strategy
+    (still ``Signal.strategy_key``/``strategy_version``, unaffected by this
+    table). Every field change is diffed and recorded as an ``AuditEvent``
+    (entity_type="alert") by the service layer - this table itself has no
+    changelog columns.
+    """
+
+    __tablename__ = "alerts"
+    __table_args__ = (
+        CheckConstraint("lot_size > 0", name="alert_lot_size_positive"),
+        Index("ix_alerts_strategy_id", "strategy_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    strategy_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("strategies.id", ondelete="SET NULL")
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    lot_size: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    timeframe: Mapped[str] = mapped_column(String(8), nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    strategy: Mapped[Strategy | None] = relationship(back_populates="alerts")
 
 
 class StrategyAssignment(Base):
@@ -231,6 +290,12 @@ class StrategyAssignment(Base):
     payment_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=PaymentStatus.GRANTED.value
     )
+
+    # Setup-wizard risk gate (Setup Wizard step 3): set only by
+    # marketplace.confirm_start, once, when the client explicitly clicks
+    # through the risk-disclosure confirmation. Never set by an admin grant.
+    confirmed_risk_disclosure: Mapped[bool] = mapped_column(nullable=False, default=False)
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = _created_at()
 
@@ -334,6 +399,10 @@ class Signal(Base):
     event_time_utc: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = _created_at()
+
+    # Incremented each time the same idempotency_key is re-delivered (a genuine
+    # dedup hit, not a conflict) - Phase 10 ops visibility into duplicate alerts.
+    duplicate_attempts: Mapped[int] = mapped_column(nullable=False, server_default="0")
 
     intents: Mapped[list[OrderIntent]] = relationship(back_populates="signal")
 
@@ -489,6 +558,12 @@ class Mt5Connection(Base):
     )
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    # Set by an admin once this client's MT5 account has been provisioned in
+    # MetaApi's own dashboard (never entered by the client - MetaApi hands
+    # these back after account creation, they aren't secrets). Both required
+    # together before MetaApiExecutionAdapter will route a real order here.
+    metaapi_account_id: Mapped[str | None] = mapped_column(String(64))
+    metaapi_region: Mapped[str | None] = mapped_column(String(32))
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -510,3 +585,26 @@ class MockBrokerDeal(Base):
     side: Mapped[str] = mapped_column(String(8), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = _created_at()
+
+
+class VaultSecret(Base):
+    """Encrypted-at-rest storage for ``RealCredentialVault`` (api/app/vault/real.py).
+
+    Only ``ciphertext`` is secret; everything else here is the same
+    safe-to-log metadata ``ScopedCredentialHandle`` already exposes. Never
+    read/written directly outside the vault module - callers only ever see a
+    ``ScopedCredentialHandle``, never a row from this table.
+    """
+
+    __tablename__ = "vault_secrets"
+    __table_args__ = (UniqueConstraint("handle_id", name="uq_vault_secrets_handle_id"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    handle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    key_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope: Mapped[str] = mapped_column(String(64), nullable=False)
+    account_ref: Mapped[str] = mapped_column(String(128), nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -73,7 +73,7 @@ def accept_signal(session: Session, payload: dict[str, Any]) -> IngestResult:
     # 3. Fast path: already stored?
     existing = session.scalar(select(Signal).where(Signal.idempotency_key == idem))
     if existing is not None:
-        return _resolve_existing(existing, payload_hash)
+        return _resolve_existing(session, existing, payload_hash)
 
     # 4. Insert signal + outbox in one transaction.
     signal = Signal(
@@ -122,7 +122,7 @@ def accept_signal(session: Session, payload: dict[str, Any]) -> IngestResult:
         if raced is None:
             raise
         log.info("signal insert raced; using stored row signal_id=%s", env.signal_id)
-        return _resolve_existing(raced, payload_hash)
+        return _resolve_existing(session, raced, payload_hash)
 
     log.info(
         "signal accepted signal_id=%s row_id=%s hash=%s",
@@ -138,11 +138,13 @@ def accept_signal(session: Session, payload: dict[str, Any]) -> IngestResult:
     )
 
 
-def _resolve_existing(existing: Signal, payload_hash: str) -> IngestResult:
+def _resolve_existing(session: Session, existing: Signal, payload_hash: str) -> IngestResult:
     if existing.payload_hash != payload_hash:
         raise SignalConflictError(
             f"signal_id {existing.signal_id!r} already stored with a different payload"
         )
+    existing.duplicate_attempts += 1
+    session.commit()
     log.info("signal duplicate ignored signal_id=%s", existing.signal_id)
     return IngestResult(
         signal_row_id=str(existing.id),

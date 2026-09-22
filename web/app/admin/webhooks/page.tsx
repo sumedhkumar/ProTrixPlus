@@ -41,6 +41,28 @@ export default async function WebhooksPage() {
           <div className="card-title">Revoked entitlements</div>
           <div className="stat-value">{opsSummary.revoked_assignments}</div>
         </div>
+        <div className="card">
+          <div className="card-title">Duplicate alerts filtered</div>
+          <div className="stat-value">{opsSummary.duplicate_signal_count}</div>
+        </div>
+        <div className="card">
+          <div className="card-title">MT5 bridges disconnected</div>
+          <div
+            className="stat-value"
+            style={{ color: opsSummary.mt5_disconnected_count > 0 ? "var(--bad)" : "var(--fg)" }}
+          >
+            {opsSummary.mt5_disconnected_count}
+          </div>
+        </div>
+        <div className="card">
+          <div className="card-title">Broker rejections</div>
+          <div
+            className="stat-value"
+            style={{ color: opsSummary.broker_rejected_count > 0 ? "var(--bad)" : "var(--fg)" }}
+          >
+            {opsSummary.broker_rejected_count}
+          </div>
+        </div>
       </div>
 
       <div className="card">

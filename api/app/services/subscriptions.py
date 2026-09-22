@@ -46,14 +46,15 @@ def create_user_with_temp_password(
     *,
     email: str,
     display_name: str,
-    phone: str,
+    phone: str | None,
     package: str,
     start: datetime | None = None,
 ) -> tuple[User, str]:
     """Provision a new account with a random password the caller must email
     to the user, and ``must_change_password=True`` so they're forced to pick
-    their own on first login. Used by both trial signup and an approved
-    payment submission from an applicant with no existing account."""
+    their own on first login. Used by trial signup, an approved payment
+    submission from an applicant with no existing account, and Google signup
+    (no phone collected there - ``phone=None``)."""
     now = datetime.now(UTC)
     period_start = start or now
     temp_password = generate_temp_password()

@@ -129,6 +129,60 @@ def test_admin_sees_all_client_mt5_connections(
     assert any(row["login"] == "999" for row in r.json())
 
 
+def test_admin_attaches_metaapi_account_to_a_clients_connection(
+    client: TestClient, admin_token: str, client_token: str
+) -> None:
+    set_r = client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "112861630"},
+        headers=_auth(client_token),
+    )
+    connection_id = set_r.json()["id"]
+    assert set_r.json()["metaapi_account_id"] is None  # never set by the client themselves
+
+    r = client.patch(
+        f"/api/v1/admin/mt5-connections/{connection_id}/metaapi",
+        json={
+            "metaapi_account_id": "b6b65caf-5b94-476e-8e7b-889b819f4f97",
+            "metaapi_region": "london",
+        },
+        headers=_auth(admin_token),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["metaapi_account_id"] == "b6b65caf-5b94-476e-8e7b-889b819f4f97"
+    assert body["metaapi_region"] == "london"
+
+    mine = client.get("/api/v1/me/mt5-connection", headers=_auth(client_token)).json()
+    assert mine["metaapi_account_id"] == "b6b65caf-5b94-476e-8e7b-889b819f4f97"
+
+
+def test_admin_attach_metaapi_account_404s_for_unknown_connection(
+    client: TestClient, admin_token: str
+) -> None:
+    r = client.patch(
+        "/api/v1/admin/mt5-connections/00000000-0000-0000-0000-000000000000/metaapi",
+        json={"metaapi_account_id": "x", "metaapi_region": "london"},
+        headers=_auth(admin_token),
+    )
+    assert r.status_code == 404
+
+
+def test_non_admin_cannot_attach_metaapi_account(client: TestClient, client_token: str) -> None:
+    set_r = client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "1"},
+        headers=_auth(client_token),
+    )
+    connection_id = set_r.json()["id"]
+    r = client.patch(
+        f"/api/v1/admin/mt5-connections/{connection_id}/metaapi",
+        json={"metaapi_account_id": "x", "metaapi_region": "london"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 403
+
+
 # --------------------------------------------------------------------------
 # Phase 6: P&L summary
 # --------------------------------------------------------------------------
@@ -179,3 +233,55 @@ def test_ops_summary_reflects_revoked_assignments(
 def test_non_admin_cannot_reach_ops_summary(client: TestClient, client_token: str) -> None:
     r = client.get("/api/v1/admin/ops-summary", headers=_auth(client_token))
     assert r.status_code == 403
+
+
+def test_ops_summary_counts_duplicate_signal_deliveries(
+    client: TestClient, admin_token: str
+) -> None:
+    payload = {
+        "schema_version": "1.0",
+        "strategy_key": "ops-dup-test",
+        "strategy_version": "1.0",
+        "signal_id": "sig-dup-test-1",
+        "event_time_utc": "2026-09-08T10:15:00Z",
+        "action": "BUY",
+        "symbol": "EURUSD",
+        "timeframe": "15m",
+    }
+    headers = {"X-Webhook-Token": "dev-webhook-token-change-me"}
+
+    before = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+
+    first = client.post("/webhook/tradingview", json=payload, headers=headers)
+    assert first.status_code == 202
+    assert first.json()["duplicate"] is False
+
+    redelivered = client.post("/webhook/tradingview", json=payload, headers=headers)
+    assert redelivered.status_code == 200
+    assert redelivered.json()["duplicate"] is True
+
+    after = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+    assert after["duplicate_signal_count"] == before["duplicate_signal_count"] + 1
+    # the fresh accept itself is not a duplicate, so total_signals moves by 1, not 2
+    assert after["total_signals"] == before["total_signals"] + 1
+
+
+def test_ops_summary_counts_disconnected_mt5_bridges(
+    client: TestClient, admin_token: str, client_user, db
+) -> None:
+    from protrix_contracts.db.models import Mt5Connection, Mt5ConnectionStatus
+
+    before = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+
+    db.add(
+        Mt5Connection(
+            user_id=client_user.id,
+            broker_server="Demo-Server",
+            login="12345",
+            status=Mt5ConnectionStatus.DISCONNECTED.value,
+        )
+    )
+    db.commit()
+
+    after = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+    assert after["mt5_disconnected_count"] == before["mt5_disconnected_count"] + 1

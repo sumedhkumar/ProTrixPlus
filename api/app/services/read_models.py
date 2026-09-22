@@ -8,6 +8,8 @@ from typing import Any
 
 from protrix_contracts.db.models import (
     Execution,
+    Mt5Connection,
+    Mt5ConnectionStatus,
     OrderIntent,
     Signal,
     Strategy,
@@ -77,6 +79,7 @@ def list_executions(
                 "computed_lot": format(intent.computed_lot, "f"),
                 "adapter": ex.adapter,
                 "state": ex.state,
+                "last_error": ex.last_error,
                 "ticket_id": ex.ticket_id,
                 "deal_id": ex.deal_id,
                 "reconcile_count": ex.reconcile_count,
@@ -166,6 +169,21 @@ def ops_summary(session: Session) -> dict[str, Any]:
         )
         or 0
     )
+    duplicate_signal_count = (
+        session.scalar(select(func.coalesce(func.sum(Signal.duplicate_attempts), 0))) or 0
+    )
+    mt5_disconnected_count = (
+        session.scalar(
+            select(func.count())
+            .select_from(Mt5Connection)
+            .where(
+                Mt5Connection.status.in_(
+                    [Mt5ConnectionStatus.DISCONNECTED.value, Mt5ConnectionStatus.ERROR.value]
+                )
+            )
+        )
+        or 0
+    )
 
     return {
         "total_signals": total_signals,
@@ -173,6 +191,9 @@ def ops_summary(session: Session) -> dict[str, Any]:
         "execution_state_counts": execution_state_counts,
         "stuck_unknown_count": execution_state_counts.get(ExecutionState.UNKNOWN.value, 0),
         "revoked_assignments": revoked_assignments,
+        "duplicate_signal_count": int(duplicate_signal_count),
+        "mt5_disconnected_count": mt5_disconnected_count,
+        "broker_rejected_count": execution_state_counts.get(ExecutionState.REJECTED.value, 0),
     }
 
 
