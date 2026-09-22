@@ -97,6 +97,9 @@ def _dto(intent: OrderIntent, client_order_id: str, account_ref: str) -> OrderIn
         take_profit=signal.take_profit if signal else None,
         position_ref=signal.position_ref if signal else None,
         close_fraction=signal.close_fraction if signal else None,
+        user_id=str(intent.user_id),
+        strategy_key=signal.strategy_key if signal else None,
+        strategy_version=signal.strategy_version if signal else None,
     )
 
 
@@ -141,6 +144,8 @@ def drive_new_execution(
 
     execution.ticket_id = result.ticket_id
     execution.deal_id = result.deal_id
+    if result.entry_price is not None:
+        execution.entry_price = result.entry_price
     if result.status == "REJECTED":
         # PlaceResult.raw carries the adapter's real rejection reason (broker
         # error message, retcode, etc.) - surface it instead of leaving
