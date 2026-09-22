@@ -7,18 +7,17 @@ RUN npm ci --no-audit --no-fund
 FROM node:22.12.0-bookworm-slim AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
-# No PROTRIX_API_URL build arg: next.config.mjs no longer inlines it, so the
-# api URL is read from the environment at runtime by the standalone server.
-# That means one image works against any api host - set PROTRIX_API_URL on the
-# service (Render) or in `environment:` (infra/docker-compose.yml).
-#
-# NEXT_PUBLIC_GOOGLE_CLIENT_ID is different: it's read client-side
-# (components/GoogleSignInButton.tsx), and Next.js only inlines
-# NEXT_PUBLIC_ vars at *build* time, so it has to be a build ARG here -
-# Render passes matching-named service env vars through as build args
-# automatically for Docker-runtime services.
-ARG NEXT_PUBLIC_GOOGLE_CLIENT_ID
-ENV NEXT_PUBLIC_GOOGLE_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_CLIENT_ID
+# No PROTRIX_API_URL / PROTRIX_GOOGLE_OAUTH_CLIENT_ID build args: neither is
+# inlined at build time (next.config.mjs doesn't declare them under `env:`,
+# and app/login|trial/page.tsx read the latter server-side, passing it down
+# as a prop rather than a "use client" component reading NEXT_PUBLIC_* from
+# process.env directly). Both are read from the environment at *runtime* by
+# the standalone server instead - one image works regardless of what the
+# builder happened to have set. A build ARG was tried here for the Google
+# client ID and silently failed in production: Render does not forward this
+# service's dashboard env vars as Docker build args, so it built in empty
+# and got dead-code-eliminated by the minifier. Set both on the service
+# (Render) or in `environment:` (infra/docker-compose.yml) instead.
 COPY --from=deps /app/node_modules ./node_modules
 COPY web ./
 COPY contracts/typescript /contracts/typescript

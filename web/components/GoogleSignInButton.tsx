@@ -37,6 +37,16 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 400;
 
 interface Props {
+  /** Read server-side (a Server Component) and passed down as a prop -
+   * deliberately NOT process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID read directly
+   * here. That would only be inlined at *build* time, and Render's Docker
+   * build does not forward this service's dashboard env vars as build args -
+   * the client ID came through as empty, and the minifier dead-code-
+   * eliminated this entire component in production. Reading it at request
+   * time server-side (like PROTRIX_API_URL, see web/lib/api.ts) works with
+   * one image regardless of build-time plumbing. Empty/undefined hides the
+   * button entirely (Google sign-in is simply off). */
+  clientId: string | undefined;
   /** Receives the Google ID token; the caller decides where to POST it. Kept
    * caller-side so switching sign-in/sign-up doesn't re-render the widget. */
   onCredential: (credential: string) => void;
@@ -46,7 +56,7 @@ interface Props {
 /** "Continue with Google" - optional alongside email/password, never required.
  * Renders Google's own button (dark/pill, sized to its container) via Identity
  * Services. */
-export function GoogleSignInButton({ onCredential, disabled }: Props) {
+export function GoogleSignInButton({ clientId, onCredential, disabled }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLDivElement>(null);
   // The GSI script may already be loaded when this mounts (client-side nav, or
@@ -56,7 +66,6 @@ export function GoogleSignInButton({ onCredential, disabled }: Props) {
   const [ready, setReady] = useState(
     () => typeof window !== "undefined" && !!window.google?.accounts?.id,
   );
-  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
 
   // Keeps the callback current without re-rendering Google's widget.
   const handlerRef = useRef(onCredential);

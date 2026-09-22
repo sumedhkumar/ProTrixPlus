@@ -77,10 +77,11 @@ services:
         # the name is taken, so check the real URL after the first deploy.
         value: https://protrixplus-web.onrender.com
       - key: PROTRIX_GOOGLE_OAUTH_CLIENT_ID
-        # Not a secret (it's embedded in the frontend bundle too, see
-        # NEXT_PUBLIC_GOOGLE_CLIENT_ID below) - same value in both places.
-        # From Google Cloud Console -> APIs & Services -> Credentials -> OAuth
-        # 2.0 Client ID (Web application). Empty disables Google sign-in.
+        # Not a secret - it reaches the browser too (protrixplus-web reads its
+        # own copy of this same key below, at runtime, and passes it down to
+        # the client). From Google Cloud Console -> APIs & Services ->
+        # Credentials -> OAuth 2.0 Client ID (Web application). Empty
+        # disables Google sign-in.
         sync: false
       - key: PROTRIX_METAAPI_TOKEN
         value: ""
@@ -117,8 +118,9 @@ services:
         value: https://protrixplus-api.onrender.com
       - key: NODE_ENV
         value: production
-      - key: NEXT_PUBLIC_GOOGLE_CLIENT_ID
-        # Baked into the client JS bundle at build time (standard Next.js
-        # NEXT_PUBLIC_ behavior) - must match PROTRIX_GOOGLE_OAUTH_CLIENT_ID
-        # on protrixplus-api above. A redeploy is needed if this changes.
+      - key: PROTRIX_GOOGLE_OAUTH_CLIENT_ID
+        # Read at runtime by app/login|trial/page.tsx (Server Components),
+        # passed down as a prop to GoogleSignInButton - not baked into the
+        # image, no rebuild needed if this changes. Must match the same key
+        # on protrixplus-api above (same OAuth client, two services).
         sync: false

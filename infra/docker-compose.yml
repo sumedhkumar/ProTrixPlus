@@ -102,11 +102,12 @@ services:
     build:
       context: ..
       dockerfile: web/Dockerfile
-      args:
-        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
     environment:
       NODE_ENV: production
       PROTRIX_API_URL: http://api:8000
+      # Read at runtime (app/login|trial/page.tsx), not a build arg - see the
+      # comment in web/Dockerfile for why that doesn't work on Render.
+      PROTRIX_GOOGLE_OAUTH_CLIENT_ID: ${PROTRIX_GOOGLE_OAUTH_CLIENT_ID:-}
       PROTRIX_WEBHOOK_SHARED_SECRET: ${PROTRIX_WEBHOOK_SHARED_SECRET:-dev-webhook-token-change-me}
     ports:
       - "${PROTRIX_WEB_PORT:-3000}:3000"

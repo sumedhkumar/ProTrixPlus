@@ -123,7 +123,14 @@ const PITCH: Record<
  * form in place (and the URL with it) rather than navigating, so the
  * transition can animate. Creating an account *is* starting the free trial:
  * there is one signup path (name/email/phone -> temp password emailed). */
-export function AuthExperience({ initialMode }: { initialMode: AuthMode }) {
+interface AuthExperienceProps {
+  initialMode: AuthMode;
+  /** Read server-side and passed down - see GoogleSignInButton's `clientId`
+   * doc for why this isn't read from process.env directly in client code. */
+  googleClientId: string | undefined;
+}
+
+export function AuthExperience({ initialMode, googleClientId }: AuthExperienceProps) {
   const router = useRouter();
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [hasToggled, setHasToggled] = useState(false);
@@ -131,7 +138,7 @@ export function AuthExperience({ initialMode }: { initialMode: AuthMode }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [alert, setAlert] = useState<Alert | null>(null);
   const [signedUpEmail, setSignedUpEmail] = useState<string | null>(null);
-  const googleEnabled = Boolean(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID);
+  const googleEnabled = Boolean(googleClientId);
   const [showPassword, setShowPassword] = useState(false);
 
   const [email, setEmail] = useState("");
@@ -526,6 +533,7 @@ export function AuthExperience({ initialMode }: { initialMode: AuthMode }) {
 
                       <div className="auth-divider">or</div>
                       <GoogleSignInButton
+                        clientId={googleClientId}
                         onCredential={handleGoogleCredential}
                         disabled={busy !== null}
                       />
@@ -595,6 +603,7 @@ export function AuthExperience({ initialMode }: { initialMode: AuthMode }) {
 
                       <div className="auth-divider">or</div>
                       <GoogleSignInButton
+                        clientId={googleClientId}
                         onCredential={handleGoogleCredential}
                         disabled={busy !== null}
                       />
