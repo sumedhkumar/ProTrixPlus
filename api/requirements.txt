@@ -9,10 +9,11 @@ alembic==1.14.0
 psycopg[binary]==3.2.3
 redis==5.2.1
 PyJWT==2.10.1
-cryptography==50.0.1  # PyJWT's RS256 backend, needed to verify Google ID tokens
+# PyJWT's RS256 backend (verifying Google ID tokens) and RealCredentialVault's
+# Fernet encryption (api/app/vault/real.py) both need this.
+cryptography==50.0.1
 jsonschema==4.23.0
 python-json-logger==3.2.1
 httpx==0.28.1
-cryptography==44.0.0
 # Shared frozen contract (installed from the local path in Docker / CI).
 protrix-contracts==1.0.0

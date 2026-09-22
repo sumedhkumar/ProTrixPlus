@@ -52,7 +52,9 @@ def test_secret_only_inside_use_and_is_cleared_after(session_factory, vault_key:
 
 
 def test_expired_handle_refuses(session_factory, vault_key: str) -> None:
-    vault = RealCredentialVault(session_factory, encryption_key=vault_key, ttl=timedelta(seconds=-1))
+    vault = RealCredentialVault(
+        session_factory, encryption_key=vault_key, ttl=timedelta(seconds=-1)
+    )
     handle = vault.issue_handle(account_ref="acct-1", scope="mt5:trade")
     assert handle.is_expired(now=datetime.now(UTC))
     with pytest.raises(VaultError), handle.use():
