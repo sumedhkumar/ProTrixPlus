@@ -16,9 +16,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.email import EmailSender, get_email_sender
 from app.identity import Claims
 from app.security import current_claims, require_role
-from app.services import alerts, marketplace, mt5_connection, read_models
+from app.services import alerts, marketplace, mt5_connection, notifications, payments, read_models
 
 router = APIRouter(
     prefix="/api/v1/admin",
@@ -294,3 +295,79 @@ def admin_update_assignment(
         return marketplace.admin_update_assignment(db, assignment_id, **fields)
     except marketplace.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# --------------------------------------------------------------------------
+# Payment-proof (UTR) review for paid subscription packages
+# --------------------------------------------------------------------------
+
+
+class RejectPaymentSubmissionRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.get("/payment-submissions")
+def admin_payment_submissions(
+    status: str | None = None, db: Session = Depends(get_db)
+) -> list[dict[str, Any]]:
+    return payments.admin_list_payment_submissions(db, status=status)
+
+
+@router.post("/payment-submissions/{submission_id}/approve")
+def admin_approve_payment_submission(
+    submission_id: str,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    sender: EmailSender = Depends(get_email_sender),
+) -> dict[str, Any]:
+    try:
+        result = payments.admin_approve_payment_submission(
+            db, submission_id=submission_id, reviewer_subject=claims.subject
+        )
+    except payments.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except payments.ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    user = result["user"]
+    if result["created_new_account"]:
+        notifications.send_payment_approved_new_account_email(
+            sender,
+            to=user.email,
+            display_name=user.display_name,
+            temp_password=result["temp_password"],
+            package=user.subscription_package,
+        )
+    else:
+        notifications.send_subscription_renewed_email(
+            sender,
+            to=user.email,
+            display_name=user.display_name,
+            package=user.subscription_package,
+            new_end=user.subscription_end,
+        )
+    submission_dict: dict[str, Any] = result["submission"]
+    return submission_dict
+
+
+@router.post("/payment-submissions/{submission_id}/reject")
+def admin_reject_payment_submission(
+    submission_id: str,
+    body: RejectPaymentSubmissionRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    sender: EmailSender = Depends(get_email_sender),
+) -> dict[str, Any]:
+    try:
+        submission = payments.admin_reject_payment_submission(
+            db, submission_id=submission_id, reviewer_subject=claims.subject, reason=body.reason
+        )
+    except payments.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except payments.ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    notifications.send_payment_rejected_email(
+        sender, to=submission["email"], display_name=submission["name"], reason=body.reason
+    )
+    return submission

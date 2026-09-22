@@ -43,6 +43,27 @@ def _make_intent(session, ids: dict, user: str) -> OrderIntent:
     return intent
 
 
+def _make_intent_for_signal(
+    session, ids: dict, user: str, *, signal_id, command_target: str, action: str
+) -> OrderIntent:
+    intent = OrderIntent(
+        user_id=ids[user],
+        strategy_id=ids["strategy"],
+        signal_id=signal_id,
+        command_target=command_target,
+        action=action,
+        symbol="EURUSD",
+        computed_lot=Decimal("1.00"),
+        master_lot=Decimal("1.00"),
+        multiplier=Decimal("1.0000"),
+        eligibility_status="ACTIVE",
+        status="CREATED",
+    )
+    session.add(intent)
+    session.flush()
+    return intent
+
+
 @pytest.fixture
 def ids(sf, seeded):
     make_signal(sf)
@@ -108,3 +129,58 @@ def test_timeout_goes_unknown_then_reconciles_filled(sf, redis_client, ids) -> N
         assert "RECONCILED" in states
         assert states[-1] == "FILLED"
         assert "DISPATCHED" not in states[states.index("UNKNOWN") + 1 :]  # never re-sent
+
+
+def test_close_signal_fills_by_closing_the_matching_entry(sf, redis_client, seeded) -> None:
+    """A CLOSE-family signal with a matching position_ref resolves against the
+    open ENTRY (not a fresh position) and reaches FILLED, with the entry's own
+    execution row carrying the exit_price/realized_pnl."""
+    adapter = MockExecutionAdapter(sf, redis_client)
+    entry_sig_id = make_signal(sf, signal_id="sig-entry-close-1", action="BUY", position_ref="pos-x")
+    close_sig_id = make_signal(sf, signal_id="sig-entry-close-2", action="CLOSE", position_ref="pos-x")
+
+    with sf() as session:
+        entry_intent = _make_intent_for_signal(
+            session, seeded, "alice", signal_id=entry_sig_id, command_target="ENTRY", action="BUY"
+        )
+        session.commit()
+        entry_execution = drive_new_execution(session, entry_intent, adapter)
+        session.commit()
+        entry_exec_id = entry_execution.id
+        assert entry_execution.state == ExecutionState.FILLED.value
+        assert entry_execution.entry_price is not None
+
+    with sf() as session:
+        close_intent = _make_intent_for_signal(
+            session, seeded, "alice", signal_id=close_sig_id, command_target="CLOSE", action="CLOSE"
+        )
+        session.commit()
+        close_execution = drive_new_execution(session, close_intent, adapter)
+        session.commit()
+        assert close_execution.state == ExecutionState.FILLED.value
+        assert close_execution.ticket_id == session.get(Execution, entry_exec_id).ticket_id
+
+    with sf() as session:
+        entry_execution = session.get(Execution, entry_exec_id)
+        assert entry_execution.exit_price is not None
+        assert entry_execution.realized_pnl is not None
+
+
+def test_close_signal_with_no_matching_position_is_rejected_cleanly(sf, redis_client, seeded) -> None:
+    """A CLOSE signal whose position_ref was never opened must reach REJECTED,
+    not raise, and not leave the state machine in an inconsistent place."""
+    adapter = MockExecutionAdapter(sf, redis_client)
+    close_sig_id = make_signal(sf, signal_id="sig-orphan-close-1", action="CLOSE", position_ref="never-opened")
+
+    with sf() as session:
+        close_intent = _make_intent_for_signal(
+            session, seeded, "alice", signal_id=close_sig_id, command_target="CLOSE", action="CLOSE"
+        )
+        session.commit()
+        close_execution = drive_new_execution(session, close_intent, adapter)
+        session.commit()
+        exec_id = close_execution.id
+
+    with sf() as session:
+        close_execution = session.get(Execution, exec_id)
+        assert close_execution.state == ExecutionState.REJECTED.value

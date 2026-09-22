@@ -30,6 +30,17 @@ export async function apiFetch<T>(
   return (await res.json()) as T;
 }
 
+export interface SubscriptionStatusView {
+  package: string | null;
+  start: string | null;
+  end: string | null;
+  days_remaining: number | null;
+  is_expired: boolean;
+  in_grace: boolean;
+  grace_ends_at: string | null;
+  hard_blocked: boolean;
+}
+
 export interface Identity {
   subject: string;
   role: "USER" | "SUPER_ADMIN";
@@ -37,6 +48,33 @@ export interface Identity {
   email: string;
   issued_at: string;
   expires_at: string;
+  must_change_password: boolean;
+  phone: string | null;
+  subscription: SubscriptionStatusView | null;
+}
+
+export interface PaymentInstructionsView {
+  bank_account_name: string | null;
+  bank_account_number: string | null;
+  bank_ifsc: string | null;
+  bank_name: string | null;
+  upi_id: string | null;
+  qr_code_url: string | null;
+}
+
+export interface PaymentSubmissionView {
+  id: string;
+  user_id: string | null;
+  name: string;
+  email: string;
+  phone: string;
+  package: string;
+  utr_reference: string;
+  status: string;
+  submitted_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  rejection_reason: string | null;
 }
 
 export interface SignalView {
@@ -195,4 +233,7 @@ export interface OpsSummary {
   execution_state_counts: Record<string, number>;
   stuck_unknown_count: number;
   revoked_assignments: number;
+  duplicate_signal_count: number;
+  mt5_disconnected_count: number;
+  broker_rejected_count: number;
 }

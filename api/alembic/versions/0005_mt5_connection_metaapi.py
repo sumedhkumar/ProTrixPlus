@@ -17,6 +17,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -27,10 +28,18 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "mt5_connections", sa.Column("metaapi_account_id", sa.String(64), nullable=True)
-    )
-    op.add_column("mt5_connections", sa.Column("metaapi_region", sa.String(32), nullable=True))
+    # 0001 provisions the whole schema from the current shared metadata, which
+    # already includes these columns on a fresh database - same situation
+    # 0003/0004 guard against.
+    existing = {c["name"] for c in inspect(op.get_bind()).get_columns("mt5_connections")}
+    if "metaapi_account_id" not in existing:
+        op.add_column(
+            "mt5_connections", sa.Column("metaapi_account_id", sa.String(64), nullable=True)
+        )
+    if "metaapi_region" not in existing:
+        op.add_column(
+            "mt5_connections", sa.Column("metaapi_region", sa.String(32), nullable=True)
+        )
 
 
 def downgrade() -> None:

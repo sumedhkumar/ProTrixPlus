@@ -17,6 +17,7 @@ import signal
 import sys
 import threading
 import time
+from urllib.parse import urlparse
 
 from redis import Redis
 from sqlalchemy import text
@@ -33,18 +34,55 @@ from app.relay import relay_once
 log = logging.getLogger("worker")
 
 
-def _wait_for_deps(redis: Redis, *, attempts: int = 60) -> None:
+def _safe_netloc(url: str) -> str:
+    """``host:port`` from a URL, with any ``user:password`` stripped.
+
+    Connection failures are worth logging with the endpoint that refused, but
+    these URLs carry passwords (Upstash hands out ``rediss://default:<pw>@...``),
+    so the userinfo must never survive into a log line.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return "<unparseable url>"
+    if not host:
+        return "<no host>"
+    return f"{host}:{port}" if port else host
+
+
+def _check_postgres() -> None:
+    with engine().connect() as conn:
+        conn.execute(text("SELECT 1"))
+
+
+def _wait_for_deps(redis: Redis, cfg: WorkerConfig, *, attempts: int = 60) -> None:
+    """Block until postgres and redis both answer.
+
+    The two are checked separately so the log can name which one is down and
+    where it was looked for: a bare "ConnectionError" repeated sixty times says
+    neither, which is exactly the hole an unset PROTRIX_REDIS_URL falls into -
+    it silently defaults to localhost, where nothing is listening.
+    """
+    failure = ""
     for i in range(attempts):
+        failure = ""
         try:
-            with engine().connect() as conn:
-                conn.execute(text("SELECT 1"))
-            redis.ping()
+            _check_postgres()
+        except Exception as exc:  # noqa: BLE001
+            failure = f"postgres at {_safe_netloc(cfg.database_url)}: {exc.__class__.__name__}"
+        if not failure:
+            try:
+                redis.ping()
+            except Exception as exc:  # noqa: BLE001
+                failure = f"redis at {_safe_netloc(cfg.redis_url)}: {exc.__class__.__name__}"
+        if not failure:
             log.info("dependencies ready")
             return
-        except Exception as exc:  # noqa: BLE001
-            log.info("waiting for deps (%d): %s", i, exc.__class__.__name__)
-            time.sleep(1)
-    raise SystemExit("dependencies never became ready")
+        log.info("waiting for deps (%d): %s", i, failure)
+        time.sleep(1)
+    raise SystemExit(f"dependencies never became ready - {failure}")
 
 
 def _relay_loop(cfg: WorkerConfig, redis: Redis, stop: threading.Event) -> None:
@@ -84,7 +122,7 @@ def main() -> int:
 
     init_db(cfg.database_url)
     redis: Redis = Redis.from_url(cfg.redis_url, decode_responses=True)
-    _wait_for_deps(redis)
+    _wait_for_deps(redis, cfg)
 
     ensure_group(redis, cfg.signal_stream, cfg.consumer_group)
     adapter = build_adapter(cfg.execution_adapter, session_factory(), redis, cfg)

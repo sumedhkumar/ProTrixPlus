@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 from alembic import op
 
@@ -24,6 +25,9 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    inspector = inspect(op.get_bind())
+    if any(c["name"] == "symbol" for c in inspector.get_columns("strategies")):
+        return
     op.add_column("strategies", sa.Column("symbol", sa.String(32), nullable=True))
 
 

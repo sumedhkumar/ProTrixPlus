@@ -68,6 +68,11 @@ jobs:
         run: cd api && alembic upgrade head
       - name: alembic migration check (no model/DB drift)
         run: cd api && alembic check
+      - name: alembic migrations are re-runnable (round-trip)
+        run: |
+          cd api
+          alembic downgrade base
+          alembic upgrade head
       - name: pytest
         run: cd api && pytest -q
 

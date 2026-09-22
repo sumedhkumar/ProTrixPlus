@@ -233,3 +233,55 @@ def test_ops_summary_reflects_revoked_assignments(
 def test_non_admin_cannot_reach_ops_summary(client: TestClient, client_token: str) -> None:
     r = client.get("/api/v1/admin/ops-summary", headers=_auth(client_token))
     assert r.status_code == 403
+
+
+def test_ops_summary_counts_duplicate_signal_deliveries(
+    client: TestClient, admin_token: str
+) -> None:
+    payload = {
+        "schema_version": "1.0",
+        "strategy_key": "ops-dup-test",
+        "strategy_version": "1.0",
+        "signal_id": "sig-dup-test-1",
+        "event_time_utc": "2026-09-08T10:15:00Z",
+        "action": "BUY",
+        "symbol": "EURUSD",
+        "timeframe": "15m",
+    }
+    headers = {"X-Webhook-Token": "dev-webhook-token-change-me"}
+
+    before = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+
+    first = client.post("/webhook/tradingview", json=payload, headers=headers)
+    assert first.status_code == 202
+    assert first.json()["duplicate"] is False
+
+    redelivered = client.post("/webhook/tradingview", json=payload, headers=headers)
+    assert redelivered.status_code == 200
+    assert redelivered.json()["duplicate"] is True
+
+    after = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+    assert after["duplicate_signal_count"] == before["duplicate_signal_count"] + 1
+    # the fresh accept itself is not a duplicate, so total_signals moves by 1, not 2
+    assert after["total_signals"] == before["total_signals"] + 1
+
+
+def test_ops_summary_counts_disconnected_mt5_bridges(
+    client: TestClient, admin_token: str, client_user, db
+) -> None:
+    from protrix_contracts.db.models import Mt5Connection, Mt5ConnectionStatus
+
+    before = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+
+    db.add(
+        Mt5Connection(
+            user_id=client_user.id,
+            broker_server="Demo-Server",
+            login="12345",
+            status=Mt5ConnectionStatus.DISCONNECTED.value,
+        )
+    )
+    db.commit()
+
+    after = client.get("/api/v1/admin/ops-summary", headers=_auth(admin_token)).json()
+    assert after["mt5_disconnected_count"] == before["mt5_disconnected_count"] + 1

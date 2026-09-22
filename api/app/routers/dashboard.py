@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from protrix_contracts.db.models import User
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.identity import Claims
 from app.security import current_claims
-from app.services import read_models
+from app.services import read_models, subscriptions
 
 router = APIRouter(prefix="/api/v1", tags=["dashboard"])
 
 
 @router.get("/me")
-def me(claims: Claims = Depends(current_claims)) -> dict[str, Any]:
+def me(db: Session = Depends(get_db), claims: Claims = Depends(current_claims)) -> dict[str, Any]:
+    user = db.get(User, uuid.UUID(claims.subject))
     return {
         "subject": claims.subject,
         "role": claims.role.value,
@@ -24,6 +28,11 @@ def me(claims: Claims = Depends(current_claims)) -> dict[str, Any]:
         "email": claims.email,
         "issued_at": claims.issued_at.isoformat(),
         "expires_at": claims.expires_at.isoformat(),
+        "must_change_password": user.must_change_password if user else False,
+        "phone": user.phone if user else None,
+        "subscription": (
+            subscriptions.subscription_status(user, datetime.now(UTC)) if user else None
+        ),
     }
 
 

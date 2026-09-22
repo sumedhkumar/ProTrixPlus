@@ -127,7 +127,13 @@ def seeded(sf, clean_db) -> dict[str, uuid.UUID]:
     return ids
 
 
-def make_signal(sf, *, signal_id: str = "sig-w-1", action: str = "BUY") -> uuid.UUID:
+def make_signal(
+    sf,
+    *,
+    signal_id: str = "sig-w-1",
+    action: str = "BUY",
+    position_ref: str | None = None,
+) -> uuid.UUID:
     with sf() as s:
         sig = Signal(
             signal_id=signal_id,
@@ -139,6 +145,7 @@ def make_signal(sf, *, signal_id: str = "sig-w-1", action: str = "BUY") -> uuid.
             action=action,
             symbol="EURUSD",
             timeframe="15m",
+            position_ref=position_ref,
             raw_payload={"signal_id": signal_id},
             event_time_utc=datetime.now(UTC),
             accepted_at=datetime.now(UTC),

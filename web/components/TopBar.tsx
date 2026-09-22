@@ -7,6 +7,7 @@ import type { Identity, StrategyView } from "@/lib/api";
 
 import { ExecutionEngineStatus, type EngineStats } from "./ExecutionEngineStatus";
 import { SimulateSignalModal } from "./SimulateSignalModal";
+import { SubscriptionCountdownPill } from "./SubscriptionStatus";
 
 const ROLE_LABEL: Record<Identity["role"], string> = {
   USER: "Client Subscriber",
@@ -22,6 +23,7 @@ export function TopBar({
   strategies: StrategyView[];
   engineStats: EngineStats;
 }) {
+  const subscription = identity.subscription;
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -56,6 +58,7 @@ export function TopBar({
           <span className="dot green" />
           AI Copilot: Online <span className="badge-pill badge-demo">DEMO</span>
         </span>
+        <SubscriptionCountdownPill subscription={subscription} />
 
         <div style={{ flex: 1 }} />
 

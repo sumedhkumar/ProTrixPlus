@@ -1,0 +1,126 @@
+# Render Blueprint for the whole free, temporary deploy: api+worker, web and db.
+# Everything runs on Render; there is no Vercel half any more.
+# Usage: Render dashboard -> New -> Blueprint -> pick this repo -> it reads this file.
+# See docs/DEPLOY-RENDER.md for the full walkthrough (Upstash Redis setup etc.).
+#
+# api + worker run in ONE free Web Service (infra/render/combined.Dockerfile)
+# because Render has no free Background Worker plan. Local dev is unaffected:
+# infra/docker-compose.yml still runs api/Dockerfile and worker/Dockerfile as
+# separate containers.
+
+databases:
+  - name: protrixplus-db
+    databaseName: protrix
+    user: protrix
+    plan: free
+
+envVarGroups:
+  - name: protrixplus-shared
+    envVars:
+      - key: PROTRIX_WEBHOOK_SHARED_SECRET
+        generateValue: true
+
+services:
+  - type: web
+    name: protrixplus-api
+    runtime: docker
+    dockerfilePath: ./infra/render/combined.Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - fromGroup: protrixplus-shared
+      # "local" (not "prod") is required: api/app/main.py refuses to start
+      # with app_env=prod while dev-identity mock auth is enabled, and this
+      # whole free/temp deploy relies on that mock auth (no real credentials).
+      - key: PROTRIX_APP_ENV
+        value: local
+      - key: PROTRIX_LOG_LEVEL
+        value: INFO
+      - key: PROTRIX_DATABASE_URL
+        fromDatabase:
+          name: protrixplus-db
+          property: connectionString
+      - key: PROTRIX_REDIS_URL
+        sync: false # paste the Upstash "rediss://" URL here after creating it
+      - key: PROTRIX_SIGNAL_STREAM
+        value: protrix.signals.v1
+      - key: PROTRIX_SIGNAL_CONSUMER_GROUP
+        value: protrix-workers
+      - key: PROTRIX_DEV_IDENTITY_ENABLED
+        value: "true"
+      - key: PROTRIX_DEV_JWT_SECRET
+        generateValue: true
+      - key: PROTRIX_DEV_JWT_ISSUER
+        value: protrixplus-dev-identity
+      - key: PROTRIX_EMAIL_BACKEND
+        # Not "smtp": Render blocks outbound traffic to ports 25/465/587 on
+        # free web services, so Gmail SMTP cannot deliver from here. Brevo
+        # goes out over HTTPS on 443 instead. Upgrading this service to a
+        # paid instance type would re-allow 465/587.
+        value: brevo
+      - key: PROTRIX_BREVO_API_KEY
+        # Paste in the Render dashboard - it must not live in this committed
+        # file. PROTRIX_SMTP_FROM_ADDRESS below has to be verified under
+        # Senders in Brevo or every send is rejected.
+        sync: false
+      - key: PROTRIX_SMTP_FROM_NAME
+        value: ProTrixPlus
+      - key: PROTRIX_SMTP_FROM_ADDRESS
+        value: protrixplus@gmail.com
+      - key: PROTRIX_ADMIN_NOTIFY_EMAIL
+        # Where payment-proof (UTR) submissions get emailed for review.
+        value: protrixplus@gmail.com
+      - key: PROTRIX_FRONTEND_BASE_URL
+        # Only used to build password-reset links (api/app/routers/auth.py).
+        # Must match the web service's URL below; Render appends a suffix if
+        # the name is taken, so check the real URL after the first deploy.
+        value: https://protrixplus-web.onrender.com
+      - key: PROTRIX_GOOGLE_OAUTH_CLIENT_ID
+        # Not a secret - it reaches the browser too (protrixplus-web reads its
+        # own copy of this same key below, at runtime, and passes it down to
+        # the client). From Google Cloud Console -> APIs & Services ->
+        # Credentials -> OAuth 2.0 Client ID (Web application). Empty
+        # disables Google sign-in.
+        sync: false
+      - key: PROTRIX_METAAPI_TOKEN
+        value: ""
+      # worker-only settings (same container, see combined-entrypoint.sh)
+      - key: PROTRIX_WORKER_NAME
+        value: worker-1
+      - key: PROTRIX_WORKER_HEALTH_PORT
+        value: "8001" # avoid colliding with uvicorn on :8000
+      - key: PROTRIX_EXECUTION_ADAPTER
+        value: mock
+      - key: PROTRIX_METAAPI_TRADING_ENABLED
+        value: "false"
+      - key: PROTRIX_METAAPI_MAGIC
+        value: "260910"
+      - key: PROTRIX_METAAPI_TIMEOUT_SECONDS
+        value: "30"
+
+  # Next.js frontend. The browser never calls the api directly - every request
+  # goes to this server, which forwards it (web/lib/proxy.ts, web/lib/api.ts)
+  # carrying the httpOnly session cookie. That is why the api's CORS allowlist
+  # is still just localhost:3000 and nothing here needs to change it.
+  - type: web
+    name: protrixplus-web
+    runtime: docker
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /login # "/" redirects; /login renders without a session
+    envVars:
+      - key: PROTRIX_API_URL
+        # Read at runtime by the standalone server, not baked into the image -
+        # see the comment in web/next.config.mjs. Points at the api service
+        # above; update if that service's URL differs.
+        value: https://protrixplus-api.onrender.com
+      - key: NODE_ENV
+        value: production
+      - key: PROTRIX_GOOGLE_OAUTH_CLIENT_ID
+        # Read at runtime by app/login|trial/page.tsx (Server Components),
+        # passed down as a prop to GoogleSignInButton - not baked into the
+        # image, no rebuild needed if this changes. Must match the same key
+        # on protrixplus-api above (same OAuth client, two services).
+        sync: false

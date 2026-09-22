@@ -8,6 +8,7 @@ interface AuthResponse {
   role: "USER" | "SUPER_ADMIN";
   display_name: string;
   subject: string;
+  must_change_password: boolean;
 }
 
 /** POST /api/auth-session { mode: "signup"|"login", email, password, display_name? }
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
     subject: auth.subject,
     role: auth.role,
     display_name: auth.display_name,
+    must_change_password: auth.must_change_password,
   });
   res.cookies.set(TOKEN_COOKIE, auth.access_token, {
     httpOnly: true,
