@@ -772,13 +772,24 @@ select:focus {
   flex-direction: column;
   gap: 14px;
   position: relative;
-}
-.pricing-card.featured {
   border: 1px solid transparent;
   background:
     linear-gradient(var(--card), var(--card)) padding-box,
     linear-gradient(135deg, var(--accent-blue), var(--accent-purple)) border-box;
   box-shadow: 0 0 32px -14px rgba(124, 108, 246, 0.55);
+}
+
+/* Ambient CTA pulse (.auth-shell .btn-primary::after) is a "look here first"
+   cue - keep it exclusive to the featured/most-popular card so it still
+   singles that one out, even though all four cards now share the same blue
+   box and button color. */
+.pricing-grid .pricing-card .btn-primary::after {
+  content: none;
+  animation: none;
+}
+.pricing-grid .pricing-card.featured .btn-primary::after {
+  content: "";
+  animation: ctaPulse 2.4s ease-in-out infinite;
 }
 .pricing-card-price {
   font-size: 30px;

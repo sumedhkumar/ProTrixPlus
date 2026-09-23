@@ -56,6 +56,20 @@ def send_payment_admin_notification(
     sender.send(to=admin_to, subject=subject, body_text=body)
 
 
+def send_payment_submitted_email(
+    sender: EmailSender, *, to: str, display_name: str, package: str, utr_reference: str
+) -> None:
+    subject = f"ProTrixPlus - payment received for {_label(package)}"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"We've received your payment submission for the {_label(package)} "
+        f"(reference: {utr_reference}).\n\n"
+        "Our team will review it shortly and you'll get a confirmation email "
+        "once it's approved.\n\n- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)
+
+
 def send_payment_approved_new_account_email(
     sender: EmailSender, *, to: str, display_name: str, temp_password: str, package: str
 ) -> None:
