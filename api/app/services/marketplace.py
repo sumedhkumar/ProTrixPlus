@@ -344,6 +344,50 @@ def admin_update_assignment(
 # --------------------------------------------------------------------------
 
 
+def self_subscribe(session: Session, *, user_id: str, strategy_id: str) -> dict[str, Any]:
+    """Self-service subscription: any signed-up client can subscribe to any
+    published strategy immediately - no admin grant required. The client
+    still goes through the Setup Wizard (sizing, MT5 connection, explicit
+    risk confirmation via confirm_start) before anything actually trades;
+    this only creates the SETUP_INCOMPLETE assignment that starts that
+    wizard, replacing what used to require an admin to grant first.
+    Idempotent - returns the existing assignment untouched if the client
+    already has one, rather than duplicating or resetting it.
+    """
+    user = session.get(User, uuid.UUID(user_id))
+    strategy = session.get(Strategy, uuid.UUID(strategy_id))
+    if user is None:
+        raise NotFoundError(f"user {user_id} not found")
+    if strategy is None:
+        raise NotFoundError(f"strategy {strategy_id} not found")
+    if not strategy.is_active:
+        raise ValidationError("this strategy isn't published yet")
+
+    existing = session.scalar(
+        select(StrategyAssignment).where(
+            StrategyAssignment.user_id == user.id, StrategyAssignment.strategy_id == strategy.id
+        )
+    )
+    if existing is not None:
+        return _assignment_dict(existing, strategy)
+
+    assignment = StrategyAssignment(
+        user_id=user.id,
+        strategy_id=strategy.id,
+        master_lot=strategy.base_lot or Decimal("1.00"),
+        multiplier=Decimal("1"),
+        multiplier_min=DEFAULT_MULTIPLIER_MIN,
+        multiplier_max=Decimal("20"),
+        status=AssignmentStatus.SETUP_INCOMPLETE.value,
+        payment_status=PaymentStatus.GRANTED.value,
+        purchased_at=datetime.now(UTC),
+    )
+    session.add(assignment)
+    session.commit()
+    session.refresh(assignment)
+    return _assignment_dict(assignment, strategy)
+
+
 def list_my_assignments(session: Session, user_id: str) -> list[dict[str, Any]]:
     stmt = (
         select(StrategyAssignment, Strategy)

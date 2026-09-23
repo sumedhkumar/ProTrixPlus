@@ -16,7 +16,7 @@ export function canAccessAdmin(role: Role | null | undefined): boolean {
 }
 
 export function homePathForRole(role: Role | null | undefined): string {
-  return role === "SUPER_ADMIN" ? "/admin" : "/dashboard";
+  return role === "SUPER_ADMIN" ? "/admin" : "/dashboard/marketplace";
 }
 
 /** Where to send someone who asked for `requestedPath` but is not allowed. */

@@ -1,11 +1,13 @@
 """GET /api/v1/strategies, /api/v1/me/assignments - client-facing catalog
-browse + multiplier selection (PRD 4.1 steps 4-6, 7).
+browse + self-service subscription + multiplier selection (PRD 4.1 steps 4-6, 7).
 
-Any authenticated role can browse. Activation itself is admin-granted for
-MVP (docs/FULL-BUILD-PLAN.md decision #4) via POST /api/v1/admin/assignments
-- there is no self-service "buy" endpoint here. What a client *can* do
-self-service is choose their multiplier within whatever bounds the admin
-granted, with an effective-lot preview before saving.
+Any authenticated role can browse. Subscribing is self-service (POST
+/api/v1/me/assignments/subscribe) - no admin grant required, superseding
+the earlier admin-only MVP flow. An admin can still grant/override an
+assignment directly (POST /api/v1/admin/assignments) as a fallback. Either
+way, a new assignment starts SETUP_INCOMPLETE - the client still has to
+complete the Setup Wizard (sizing, MT5 connection, explicit risk
+confirmation) before anything actually trades.
 """
 
 from __future__ import annotations
@@ -39,6 +41,28 @@ def my_assignments(
     db: Session = Depends(get_db), claims: Claims = Depends(current_claims)
 ) -> list[dict[str, Any]]:
     return marketplace.list_my_assignments(db, claims.subject)
+
+
+class SubscribeRequest(BaseModel):
+    strategy_id: str
+
+
+@router.post("/me/assignments/subscribe")
+def subscribe(
+    body: SubscribeRequest,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    """Self-service subscription - any signed-up client can subscribe to any
+    published strategy immediately. No admin approval required."""
+    try:
+        return marketplace.self_subscribe(db, user_id=claims.subject, strategy_id=body.strategy_id)
+    except marketplace.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except marketplace.ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 class MultiplierPreviewRequest(BaseModel):

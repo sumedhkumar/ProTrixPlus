@@ -39,12 +39,19 @@ were present as headers only, with no content, in what you pasted):
 4. **Settlement formula specifics** — gross vs. net-of-fees P&L, per-trade vs.
    daily-aggregate, and whether 10%/20% is per-strategy admin-configured or a
    platform default. Gates **Phase 7**.
-5. **Payment/collection workflow for MVP.** PRD 3.2 explicitly defers
+5. **RESOLVED (2026-09-23): strategy subscription is self-service, not
+   admin-granted.** Any signed-up client can subscribe to any published
+   strategy immediately via `POST /api/v1/me/assignments/subscribe` - no
+   admin approval step. This reverses the earlier MVP assumption below,
+   which is kept for history. An admin can still grant/override an
+   assignment directly as a fallback (`POST /api/v1/admin/assignments`),
+   but it's no longer required. Real payment collection is still
+   out-of-band/manual (see the Subscribe/Trial pages' payment-submission
+   flow) - this only removes the *access-grant* gate, not billing.
+   ~~Payment/collection workflow for MVP. PRD 3.2 explicitly defers
    "self-service payment gateway automation" to a later phase — my working
    assumption is that MVP entitlement is admin-granted manually (an admin
-   flips a client's access on after receiving payment out-of-band). Confirm
-   or correct this — it changes Phase 2's and Phase 7's API/UI shape. Gates
-   **Phase 2, Phase 7**.
+   flips a client's access on after receiving payment out-of-band).~~
 6. **Referral bonus rules** — trigger condition (signup vs. first payment),
    bonus amount/percentage, payout mechanism. Gates **Phase 8**.
 

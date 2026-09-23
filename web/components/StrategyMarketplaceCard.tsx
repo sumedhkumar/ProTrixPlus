@@ -111,6 +111,23 @@ export function StrategyMarketplaceCard({
     router.refresh();
   }
 
+  async function subscribe() {
+    setBusy(true);
+    setError(null);
+    const res = await fetch("/api/me/assignments/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ strategy_id: strategy.id }),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `subscribe failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
+
   const stats = demoStats(strategy.id);
   const sizingChanged = assignment ? selectedMultiplier !== Number(assignment.multiplier) : false;
 
@@ -242,16 +259,16 @@ export function StrategyMarketplaceCard({
         <>
           <button
             type="button"
-            className="secondary"
-            disabled
-            title="Self-serve activation isn't live in this MVP - access is admin-granted. Ask an admin under Clients & Risk Caps."
-            style={{ width: "100%", opacity: 0.6, cursor: "not-allowed" }}
+            className="btn-primary"
+            disabled={busy}
+            onClick={() => void subscribe()}
+            style={{ width: "100%" }}
           >
-            🔒 Activate &amp; Route to MT5
+            {busy ? "Subscribing..." : "⚡ Subscribe"}
           </button>
           <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
-            Not activated for your account yet - this MVP has no self-serve checkout; ask an admin
-            to grant it after payment.
+            Instant, self-service - no admin approval needed. You&apos;ll size your position and
+            connect MT5 next.
           </p>
         </>
       )}
