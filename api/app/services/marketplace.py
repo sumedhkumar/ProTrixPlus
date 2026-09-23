@@ -33,16 +33,15 @@ from protrix_contracts.money import compute_lot
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services import mt5_connection
+
 DEFAULT_MULTIPLIER_MIN = Decimal("1")
 DEFAULT_MULTIPLIER_MAX = Decimal("3")
-ALLOWED_CLIENT_MULTIPLIERS = (
-    Decimal("1"),
-    Decimal("2"),
-    Decimal("3"),
-    Decimal("5"),
-    Decimal("10"),
-    Decimal("20"),
-)
+# A client picks any whole-number multiplier in this global range via the
+# marketplace slider - narrowed further per-assignment by the admin-set
+# multiplier_min/multiplier_max risk cap (checked separately below).
+MIN_CLIENT_MULTIPLIER = Decimal("1")
+MAX_CLIENT_MULTIPLIER = Decimal("100")
 
 
 class NotFoundError(Exception):
@@ -71,6 +70,7 @@ def _strategy_dict(s: Strategy) -> dict[str, Any]:
         "max_drawdown": format(s.max_drawdown, "f") if s.max_drawdown is not None else None,
         "description_short": s.description_short,
         "is_active": s.is_active,
+        "min_balance": format(s.min_balance, "f") if s.min_balance is not None else None,
     }
 
 
@@ -119,6 +119,7 @@ class StrategyCatalogInput:
     win_rate: Decimal | None = None
     max_drawdown: Decimal | None = None
     description_short: str | None = None
+    min_balance: Decimal | None = None
 
 
 def admin_create_strategy(session: Session, body: StrategyCatalogInput) -> dict[str, Any]:
@@ -135,6 +136,7 @@ def admin_create_strategy(session: Session, body: StrategyCatalogInput) -> dict[
         win_rate=body.win_rate,
         max_drawdown=body.max_drawdown,
         description_short=body.description_short,
+        min_balance=body.min_balance,
         # New strategies start hidden from clients (see list_catalog's
         # active_only filter) until an admin has priced it and explicitly
         # approved it via admin_update_strategy(is_active=True).
@@ -164,6 +166,7 @@ def admin_update_strategy(
         "win_rate",
         "max_drawdown",
         "description_short",
+        "min_balance",
     ):
         if field in fields and fields[field] is not None:
             setattr(strategy, field, fields[field])
@@ -368,8 +371,15 @@ def preview_effective_lot(
 def set_my_multiplier(
     session: Session, *, user_id: str, assignment_id: str, multiplier: Decimal
 ) -> dict[str, Any]:
-    if multiplier not in ALLOWED_CLIENT_MULTIPLIERS:
-        raise ValidationError("multiplier must be one of 1, 2, 3, 5, 10, 20")
+    if (
+        multiplier != multiplier.to_integral_value()
+        or multiplier < MIN_CLIENT_MULTIPLIER
+        or multiplier > MAX_CLIENT_MULTIPLIER
+    ):
+        raise ValidationError(
+            f"multiplier must be a whole number between {MIN_CLIENT_MULTIPLIER} and "
+            f"{MAX_CLIENT_MULTIPLIER}"
+        )
 
     assignment = session.get(StrategyAssignment, uuid.UUID(assignment_id))
     if assignment is None or str(assignment.user_id) != user_id:
@@ -389,15 +399,22 @@ def set_my_multiplier(
     return _assignment_dict(assignment, strategy)
 
 
-def confirm_start(session: Session, *, user_id: str, assignment_id: str) -> dict[str, Any]:
+def confirm_start(
+    session: Session, *, user_id: str, assignment_id: str, metaapi_token: str = ""
+) -> dict[str, Any]:
     """Setup Wizard step 3: the client's explicit "Start" confirmation.
 
     This is the ONLY place a SETUP_INCOMPLETE assignment can become ACTIVE -
     an admin grant never sets ACTIVE directly (see admin_grant_entitlement).
-    Both preconditions are enforced here, server-side, not just by disabling
-    a button in the UI: the assignment must actually be awaiting setup, and
-    the client's MT5 connection must actually be CONNECTED (real, via
-    MetaApi - see mt5_connection.check_connection), never assumed.
+    Preconditions are enforced here, server-side, not just by disabling a
+    button in the UI: the assignment must actually be awaiting setup, the
+    client's MT5 connection must actually be CONNECTED (real, via MetaApi -
+    see mt5_connection.check_connection), never assumed, and - if the
+    strategy declares a min_balance - the account's real balance must meet
+    it. Balance is only ever enforced when it's actually known (MetaApi
+    reachable and account attached); an unverifiable balance never blocks
+    activation, matching mt5_connection's "never fabricate a result"
+    philosophy - it's surfaced as a warning client-side instead.
     """
     assignment = session.get(StrategyAssignment, uuid.UUID(assignment_id))
     if assignment is None or str(assignment.user_id) != user_id:
@@ -415,6 +432,22 @@ def confirm_start(session: Session, *, user_id: str, assignment_id: str) -> dict
 
     strategy = session.get(Strategy, assignment.strategy_id)
     assert strategy is not None
+
+    if strategy.min_balance is not None:
+        live_balance = mt5_connection.get_my_live_balance(
+            session, user_id, metaapi_token=metaapi_token
+        )
+        balance = live_balance.get("balance")
+        if (
+            live_balance.get("available")
+            and balance is not None
+            and Decimal(str(balance)) < strategy.min_balance
+        ):
+            raise ValidationError(
+                f"your MT5 account balance ({balance} {live_balance.get('currency', '')}) "
+                f"is below the {strategy.min_balance} minimum required for "
+                f"'{strategy.name}' to work - fund your account before starting"
+            )
 
     assignment.confirmed_risk_disclosure = True
     assignment.activated_at = datetime.now(UTC)

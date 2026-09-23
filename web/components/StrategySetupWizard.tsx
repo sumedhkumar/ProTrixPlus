@@ -3,12 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import type { Mt5ConnectionView, MyAssignmentView } from "@/lib/api";
+import type { LiveBalance, Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
 
 import { Mt5ConnectionModal } from "./Mt5ConnectionModal";
-
-const MULTIPLIERS = [1, 2, 3, 5, 10, 20] as const;
-type Multiplier = (typeof MULTIPLIERS)[number];
+import { MultiplierSlider } from "./MultiplierSlider";
+import { WarningBanner } from "./WarningBanner";
 
 function RiskConfirmModal({
   strategyName,
@@ -74,20 +73,21 @@ function RiskConfirmModal({
 }
 
 export function StrategySetupWizard({
-  strategyName,
+  strategy,
   assignment,
   mt5Connection,
+  liveBalance,
   onClose,
 }: {
-  strategyName: string;
+  strategy: StrategyView;
   assignment: MyAssignmentView;
   mt5Connection: Mt5ConnectionView | null;
+  liveBalance: LiveBalance;
   onClose: () => void;
 }) {
+  const strategyName = strategy.name;
   const router = useRouter();
-  const [multiplier, setMultiplier] = useState<Multiplier>(
-    (Number(assignment.multiplier) as Multiplier) || 1,
-  );
+  const [multiplier, setMultiplier] = useState<number>(Number(assignment.multiplier) || 1);
   const [previewLot, setPreviewLot] = useState<string | null>(assignment.effective_lot);
   const [sizingBusy, setSizingBusy] = useState(false);
   const [sizingError, setSizingError] = useState<string | null>(null);
@@ -97,8 +97,20 @@ export function StrategySetupWizard({
   const [startError, setStartError] = useState<string | null>(null);
 
   const connected = mt5Connection?.status === "CONNECTED";
-  const multiplierMin = Number(assignment.multiplier_min);
-  const multiplierMax = Number(assignment.multiplier_max);
+  const belowMinBalance =
+    strategy.min_balance !== null &&
+    liveBalance.available &&
+    liveBalance.balance !== undefined &&
+    liveBalance.balance < Number(strategy.min_balance);
+  // What actually gets used - the slider spans 1X-100X, but the backend
+  // still clamps to the admin-granted range per assignment, so the
+  // equation must show that clamp too or the math looks broken (e.g.
+  // "0.10L x 100X = 0.30 Lots").
+  const effectiveMultiplier = Math.min(
+    Number(assignment.multiplier_max),
+    Math.max(Number(assignment.multiplier_min), multiplier),
+  );
+  const multiplierCapped = effectiveMultiplier !== multiplier;
 
   useEffect(() => {
     let cancelled = false;
@@ -193,27 +205,18 @@ export function StrategySetupWizard({
 
           <div className="card" style={{ marginTop: 20, marginBottom: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>Step 1 — Lot sizing</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-              {MULTIPLIERS.map((m) => {
-                const inBounds = m >= multiplierMin && m <= multiplierMax;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    className={multiplier === m ? "btn-primary" : "secondary"}
-                    disabled={!inBounds}
-                    onClick={() => setMultiplier(m)}
-                    style={{ flex: "1 1 60px" }}
-                  >
-                    {m}X
-                  </button>
-                );
-              })}
-            </div>
+            <MultiplierSlider value={multiplier} onChange={setMultiplier} />
+            {multiplierCapped ? (
+              <WarningBanner
+                tone="warn"
+                title={`Capped to ${effectiveMultiplier}X`}
+                message={`Your account is entitled to ${assignment.multiplier_min}X-${assignment.multiplier_max}X on this strategy - ${multiplier}X will be capped to ${effectiveMultiplier}X. Ask an admin to raise your limit for more.`}
+              />
+            ) : null}
             <div className="stat-sub" style={{ marginBottom: 10 }}>
               <span>Projected execution lot</span>
               <span style={{ color: "var(--fg)", fontWeight: 700 }}>
-                {assignment.master_lot}L × {multiplier}X ={" "}
+                {assignment.master_lot}L × {effectiveMultiplier}X ={" "}
                 {previewLot !== null ? `${previewLot} Lots` : "—"}
               </span>
             </div>
@@ -236,6 +239,22 @@ export function StrategySetupWizard({
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
               Step 2 — Connect MT5 account
             </div>
+            {strategy.min_balance ? (
+              <WarningBanner
+                tone={belowMinBalance ? "bad" : "warn"}
+                title={
+                  belowMinBalance
+                    ? "Connected account is below the minimum"
+                    : `Minimum balance required: $${strategy.min_balance}`
+                }
+                message={
+                  belowMinBalance
+                    ? `"${strategyName}" requires $${strategy.min_balance}, but your connected account's balance is $${liveBalance.balance?.toFixed(2)} - fund it before continuing.`
+                    : `"${strategyName}" requires a minimum MT5 account balance of $${strategy.min_balance} to work correctly - make sure the account you connect meets this.`
+                }
+                style={{ marginBottom: 14 }}
+              />
+            ) : null}
             {connected ? (
               <p style={{ color: "var(--ok)", fontSize: 13 }}>
                 ✅ Connection successful — {mt5Connection?.broker_server} ({mt5Connection?.login})
@@ -258,15 +277,24 @@ export function StrategySetupWizard({
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>
               Step 3 — Start / go-live confirmation
             </div>
-            <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
-              {connected
-                ? "Once you confirm, real-time alerts for this strategy will route to your MT5 account."
-                : "Complete Step 2 first - Start is only available once your MT5 account is connected."}
-            </p>
+            {belowMinBalance ? (
+              <WarningBanner
+                tone="bad"
+                title="Can't start yet"
+                message={`Your MT5 account balance ($${liveBalance.balance?.toFixed(2)}) is below the $${strategy.min_balance} this strategy requires - fund your account before starting.`}
+              />
+            ) : (
+              <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 12 }}>
+                {!connected
+                  ? "Complete Step 2 first - Start is only available once your MT5 account is connected."
+                  : "Once you confirm, real-time alerts for this strategy will route to your MT5 account."}
+              </p>
+            )}
             <button
               type="button"
               className="btn-primary"
-              disabled={!connected}
+              disabled={!connected || belowMinBalance}
+              title={belowMinBalance ? "Fund your MT5 account to meet the minimum balance first" : undefined}
               onClick={() => setShowRiskModal(true)}
             >
               🚀 Start
@@ -279,6 +307,7 @@ export function StrategySetupWizard({
         <Mt5ConnectionModal
           connection={mt5Connection}
           displayName={strategyName}
+          minBalance={strategy.min_balance}
           onClose={() => {
             setShowMt5Modal(false);
             router.refresh();

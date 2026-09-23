@@ -33,6 +33,7 @@ export function AdminStrategyCatalog({
     win_rate: "",
     max_drawdown: "",
     description_short: "",
+    min_balance: "",
   });
 
   async function create(e: React.FormEvent) {
@@ -55,6 +56,7 @@ export function AdminStrategyCatalog({
         win_rate: form.win_rate || null,
         max_drawdown: form.max_drawdown || null,
         description_short: form.description_short || null,
+        min_balance: form.min_balance || null,
       }),
     });
     setBusy(false);
@@ -76,6 +78,7 @@ export function AdminStrategyCatalog({
       win_rate: "",
       max_drawdown: "",
       description_short: "",
+      min_balance: "",
     });
     setShowCreateModal(false);
     router.refresh();
@@ -148,6 +151,7 @@ export function AdminStrategyCatalog({
               <th>Strategy &amp; symbol</th>
               <th>Timeframe</th>
               <th>Base lot</th>
+              <th>Min. balance</th>
               <th>Pricing &amp; split</th>
               <th>Status</th>
               <th>Actions</th>
@@ -166,6 +170,7 @@ export function AdminStrategyCatalog({
                 </td>
                 <td>{s.timeframe ?? "-"}</td>
                 <td>{s.base_lot ?? "-"}</td>
+                <td>{s.min_balance ? `$${s.min_balance}` : "-"}</td>
                 <td>
                   {s.price ? `$${s.price}/mo` : "-"}
                   {s.profit_share_percent ? (
@@ -359,6 +364,11 @@ export function AdminStrategyCatalog({
                 placeholder="base lot"
                 value={form.base_lot}
                 onChange={(e) => setForm({ ...form, base_lot: e.target.value })}
+              />
+              <input
+                placeholder="minimum MT5 account balance required (e.g. 500)"
+                value={form.min_balance}
+                onChange={(e) => setForm({ ...form, min_balance: e.target.value })}
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <input

@@ -137,6 +137,7 @@ export default async function TradingTerminalPage() {
                 strategy={strategy}
                 assignment={assignment}
                 mt5Connection={mt5Connection}
+                liveBalance={liveBalance}
               />
             ))}
           </div>

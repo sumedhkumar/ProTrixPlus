@@ -151,6 +151,7 @@ export interface StrategyView {
   max_drawdown: string | null;
   description_short: string | null;
   is_active: boolean;
+  min_balance: string | null;
 }
 
 // "SETUP_INCOMPLETE" = admin has granted access but the client hasn't yet

@@ -86,6 +86,7 @@ class StrategyCreateRequest(BaseModel):
     win_rate: Decimal | None = Field(default=None, ge=0, le=100)
     max_drawdown: Decimal | None = Field(default=None, ge=0, le=100)
     description_short: str | None = Field(default=None, max_length=240)
+    min_balance: Decimal | None = Field(default=None, ge=0)
 
 
 class StrategyUpdateRequest(BaseModel):
@@ -99,6 +100,7 @@ class StrategyUpdateRequest(BaseModel):
     win_rate: Decimal | None = Field(default=None, ge=0, le=100)
     max_drawdown: Decimal | None = Field(default=None, ge=0, le=100)
     description_short: str | None = Field(default=None, max_length=240)
+    min_balance: Decimal | None = Field(default=None, ge=0)
     is_active: bool | None = None
 
 
@@ -126,6 +128,7 @@ def admin_create_strategy(
             win_rate=body.win_rate,
             max_drawdown=body.max_drawdown,
             description_short=body.description_short,
+            min_balance=body.min_balance,
         ),
     )
 

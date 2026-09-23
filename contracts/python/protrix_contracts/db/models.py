@@ -185,6 +185,7 @@ class Strategy(Base):
             "max_drawdown IS NULL OR (max_drawdown >= 0 AND max_drawdown <= 100)",
             name="max_drawdown_in_range",
         ),
+        CheckConstraint("min_balance IS NULL OR min_balance >= 0", name="min_balance_non_negative"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -208,6 +209,14 @@ class Strategy(Base):
     win_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     max_drawdown: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
     description_short: Mapped[str | None] = mapped_column(String(240))
+
+    # Eligibility (this task): the MT5 account balance a client needs for
+    # this strategy's lot sizing to make sense. Admin-set, like every other
+    # catalog field above - never inferred. NULL means no minimum is
+    # enforced (existing strategies created before this field stay
+    # unaffected). Enforced server-side in marketplace.confirm_start, not
+    # just displayed - see that function's docstring.
+    min_balance: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
 
     created_at: Mapped[datetime] = _created_at()
 

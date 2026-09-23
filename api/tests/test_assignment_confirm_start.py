@@ -12,6 +12,9 @@ from fastapi.testclient import TestClient
 from protrix_contracts.db.models import Mt5Connection, Mt5ConnectionStatus, User, UserRole
 from sqlalchemy import select
 
+from app.config import get_settings
+from app.services import metaapi_client
+
 pytestmark = pytest.mark.dbtest
 
 
@@ -170,3 +173,125 @@ def test_confirm_start_404_for_another_clients_assignment(
         f"/api/v1/me/assignments/{assignment['id']}/confirm-start", headers=_auth(client_token)
     )
     assert r.status_code == 404
+
+
+def _connect_and_attach_metaapi(
+    client: TestClient, admin_token: str, client_token: str, client_user, db
+) -> None:
+    set_r = client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "123"},
+        headers=_auth(client_token),
+    )
+    connection_id = set_r.json()["id"]
+    client.patch(
+        f"/api/v1/admin/mt5-connections/{connection_id}/metaapi",
+        json={"metaapi_account_id": "abc-123", "metaapi_region": "london"},
+        headers=_auth(admin_token),
+    )
+    conn = db.scalar(select(Mt5Connection).where(Mt5Connection.user_id == client_user.id))
+    conn.status = Mt5ConnectionStatus.CONNECTED.value
+    db.commit()
+
+
+def test_confirm_start_blocks_when_balance_below_strategy_minimum(
+    client: TestClient,
+    admin_token,
+    client_token,
+    client_user,
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strategy eligibility (this task): a strategy that declares
+    min_balance must not go live on an MT5 account whose real balance is
+    below it - enforced server-side in marketplace.confirm_start, not just
+    as a UI warning."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    strategy = client.post(
+        "/api/v1/admin/strategies",
+        json={
+            "strategy_key": "wiz-minbal-low",
+            "strategy_version": "1.0",
+            "name": "wiz-minbal-low",
+            "min_balance": "1000",
+        },
+        headers=_auth(admin_token),
+    ).json()
+    assert strategy["min_balance"] == "1000.00"
+    assignment = _grant(client, admin_token, client_user, strategy["id"])
+    _connect_and_attach_metaapi(client, admin_token, client_token, client_user, db)
+
+    def low_balance(*, token, region, account_id):  # noqa: ARG001
+        return {"balance": 50.0, "equity": 50.0, "freeMargin": 50.0, "currency": "USD"}
+
+    monkeypatch.setattr(metaapi_client, "get_account_information", low_balance)
+
+    r = client.post(
+        f"/api/v1/me/assignments/{assignment['id']}/confirm-start", headers=_auth(client_token)
+    )
+    assert r.status_code == 422
+    assert "minimum" in r.json()["detail"]
+
+
+def test_confirm_start_allows_when_balance_meets_strategy_minimum(
+    client: TestClient,
+    admin_token,
+    client_token,
+    client_user,
+    db,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    strategy = client.post(
+        "/api/v1/admin/strategies",
+        json={
+            "strategy_key": "wiz-minbal-ok",
+            "strategy_version": "1.0",
+            "name": "wiz-minbal-ok",
+            "min_balance": "1000",
+        },
+        headers=_auth(admin_token),
+    ).json()
+    assignment = _grant(client, admin_token, client_user, strategy["id"])
+    _connect_and_attach_metaapi(client, admin_token, client_token, client_user, db)
+
+    def ample_balance(*, token, region, account_id):  # noqa: ARG001
+        return {"balance": 5000.0, "equity": 5000.0, "freeMargin": 5000.0, "currency": "USD"}
+
+    monkeypatch.setattr(metaapi_client, "get_account_information", ample_balance)
+
+    r = client.post(
+        f"/api/v1/me/assignments/{assignment['id']}/confirm-start", headers=_auth(client_token)
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "ACTIVE"
+
+
+def test_confirm_start_not_blocked_when_balance_unverifiable(
+    client: TestClient, admin_token, client_token, client_user, db
+) -> None:
+    """No PROTRIX_METAAPI_TOKEN configured (default test env) - balance is
+    unknown, not below minimum, so activation must not be blocked on a fact
+    we can't actually verify (mirrors mt5_connection's honesty rule)."""
+    strategy = client.post(
+        "/api/v1/admin/strategies",
+        json={
+            "strategy_key": "wiz-minbal-unverifiable",
+            "strategy_version": "1.0",
+            "name": "wiz-minbal-unverifiable",
+            "min_balance": "1000",
+        },
+        headers=_auth(admin_token),
+    ).json()
+    assignment = _grant(client, admin_token, client_user, strategy["id"])
+    _connect_and_attach_metaapi(client, admin_token, client_token, client_user, db)
+
+    r = client.post(
+        f"/api/v1/me/assignments/{assignment['id']}/confirm-start", headers=_auth(client_token)
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "ACTIVE"
