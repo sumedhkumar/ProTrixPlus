@@ -345,14 +345,14 @@ def admin_update_assignment(
 
 
 def self_subscribe(session: Session, *, user_id: str, strategy_id: str) -> dict[str, Any]:
-    """Self-service subscription: any signed-up client can subscribe to any
-    published strategy immediately - no admin grant required. The client
-    still goes through the Setup Wizard (sizing, MT5 connection, explicit
-    risk confirmation via confirm_start) before anything actually trades;
-    this only creates the SETUP_INCOMPLETE assignment that starts that
-    wizard, replacing what used to require an admin to grant first.
-    Idempotent - returns the existing assignment untouched if the client
-    already has one, rather than duplicating or resetting it.
+    """Self-service subscription request: any signed-up client can see and
+    request any published strategy immediately - no admin action needed to
+    *request* it. The resulting assignment starts PENDING_APPROVAL - visible
+    to the client, but locked (no Setup Wizard access) until an admin
+    confirms the strategy's subscription price was actually paid and moves
+    it to SETUP_INCOMPLETE via admin_approve_subscription. Idempotent -
+    returns the existing assignment untouched if the client already has one,
+    rather than duplicating or resetting it.
     """
     user = session.get(User, uuid.UUID(user_id))
     strategy = session.get(Strategy, uuid.UUID(strategy_id))
@@ -378,11 +378,44 @@ def self_subscribe(session: Session, *, user_id: str, strategy_id: str) -> dict[
         multiplier=Decimal("1"),
         multiplier_min=DEFAULT_MULTIPLIER_MIN,
         multiplier_max=Decimal("20"),
-        status=AssignmentStatus.SETUP_INCOMPLETE.value,
+        status=AssignmentStatus.PENDING_APPROVAL.value,
         payment_status=PaymentStatus.GRANTED.value,
         purchased_at=datetime.now(UTC),
     )
     session.add(assignment)
+    session.commit()
+    session.refresh(assignment)
+    return _assignment_dict(assignment, strategy)
+
+
+def admin_approve_subscription(
+    session: Session, assignment_id: str, *, actor: str
+) -> dict[str, Any]:
+    """Admin confirms the client actually paid for this strategy's
+    subscription (out-of-band for MVP - see docs/FULL-BUILD-PLAN.md open
+    question #5) and unlocks it: PENDING_APPROVAL -> SETUP_INCOMPLETE, which
+    gives the client Setup Wizard access. Only valid from PENDING_APPROVAL -
+    an already-approved or active assignment has nothing to approve."""
+    assignment = session.get(StrategyAssignment, uuid.UUID(assignment_id))
+    if assignment is None:
+        raise NotFoundError(f"assignment {assignment_id} not found")
+    if assignment.status != AssignmentStatus.PENDING_APPROVAL.value:
+        raise ValidationError(
+            f"assignment is '{assignment.status}', not awaiting approval - nothing to approve"
+        )
+    strategy = session.get(Strategy, assignment.strategy_id)
+    assert strategy is not None
+
+    assignment.status = AssignmentStatus.SETUP_INCOMPLETE.value
+    session.add(
+        AuditEvent(
+            event_type="assignment.approved",
+            entity_type="assignment",
+            entity_id=str(assignment.id),
+            actor=actor,
+            data={"strategy_id": str(strategy.id)},
+        )
+    )
     session.commit()
     session.refresh(assignment)
     return _assignment_dict(assignment, strategy)

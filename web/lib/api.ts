@@ -153,9 +153,11 @@ export interface StrategyView {
   is_active: boolean;
 }
 
-// "SETUP_INCOMPLETE" = admin has granted access but the client hasn't yet
-// completed the setup wizard (sizing + MT5 connection + risk confirmation).
-export type AssignmentStatus = "SETUP_INCOMPLETE" | "ACTIVE" | "PAUSED";
+// "PENDING_APPROVAL" = client self-subscribed but an admin hasn't confirmed
+// payment yet - locked, no Setup Wizard access. "SETUP_INCOMPLETE" = admin
+// approved (or granted directly) but the client hasn't yet completed the
+// setup wizard (sizing + MT5 connection + risk confirmation).
+export type AssignmentStatus = "PENDING_APPROVAL" | "SETUP_INCOMPLETE" | "ACTIVE" | "PAUSED";
 
 export interface MyAssignmentView {
   id: string;

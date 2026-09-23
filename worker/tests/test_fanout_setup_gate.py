@@ -52,3 +52,36 @@ def test_setup_incomplete_assignment_does_not_fan_out(sf, redis_client, seeded) 
         assert session.scalar(select(func.count()).select_from(Execution)) == 2
         intent_user_ids = set(session.scalars(select(OrderIntent.user_id)).all())
         assert carol_id not in intent_user_ids
+
+
+def test_pending_approval_assignment_does_not_fan_out(sf, redis_client, seeded) -> None:
+    """A client self-subscribing (api/app/services/marketplace.py's
+    self_subscribe) starts even earlier than SETUP_INCOMPLETE - locked until
+    an admin confirms payment. Must not fan out either."""
+    with sf() as s:
+        dave = User(email="dave@example.test", display_name="Dave", role="USER")
+        s.add(dave)
+        s.flush()
+        dave_id = dave.id
+        s.add(
+            StrategyAssignment(
+                user_id=dave_id,
+                strategy_id=seeded["strategy"],
+                master_lot=Decimal("1.00"),
+                multiplier=Decimal("1.0000"),
+                multiplier_min=Decimal("0.5000"),
+                multiplier_max=Decimal("2.0000"),
+                status="PENDING_APPROVAL",
+            )
+        )
+        s.commit()
+
+    signal_row_id = make_signal(sf, signal_id="sig-w-2")
+    adapter = MockExecutionAdapter(sf, redis_client)
+
+    with sf() as session:
+        process_signal(session, signal_row_id, adapter)
+
+    with sf() as session:
+        intent_user_ids = set(session.scalars(select(OrderIntent.user_id)).all())
+        assert dave_id not in intent_user_ids

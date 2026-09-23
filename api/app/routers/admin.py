@@ -297,6 +297,25 @@ def admin_update_assignment(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.post("/assignments/{assignment_id}/approve")
+def admin_approve_subscription(
+    assignment_id: str,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    """Confirms the client's self-subscribed strategy request was paid for
+    (out-of-band for MVP) and unlocks the Setup Wizard for them:
+    PENDING_APPROVAL -> SETUP_INCOMPLETE."""
+    try:
+        return marketplace.admin_approve_subscription(db, assignment_id, actor=claims.subject)
+    except marketplace.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except marketplace.ValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
 # --------------------------------------------------------------------------
 # Payment-proof (UTR) review for paid subscription packages
 # --------------------------------------------------------------------------

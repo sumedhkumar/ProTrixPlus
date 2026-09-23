@@ -1,8 +1,9 @@
-"""POST /api/v1/me/assignments/subscribe - self-service subscription. Any
-signed-up client can subscribe to any published strategy immediately, no
-admin approval required. The resulting assignment still starts
-SETUP_INCOMPLETE - the client goes through the Setup Wizard (sizing, MT5
-connection, explicit risk confirmation) before anything trades."""
+"""POST /api/v1/me/assignments/subscribe - self-service subscription
+*request*. Any signed-up client can see and request any published strategy
+immediately, no admin action needed to request it - but the resulting
+assignment starts PENDING_APPROVAL: locked, no Setup Wizard access, until
+an admin confirms the subscription price was actually paid via
+POST /api/v1/admin/assignments/{id}/approve (see test_admin_approve.py)."""
 
 from __future__ import annotations
 
@@ -70,7 +71,7 @@ def _published_strategy(client: TestClient, admin_token: str, key: str, *, base_
     return strategy
 
 
-def test_subscribe_to_a_published_strategy_creates_setup_incomplete_assignment(
+def test_subscribe_to_a_published_strategy_creates_pending_approval_assignment(
     client: TestClient, admin_token: str, client_token: str
 ) -> None:
     strategy = _published_strategy(client, admin_token, "self-sub-1", base_lot="2.00")
@@ -83,7 +84,7 @@ def test_subscribe_to_a_published_strategy_creates_setup_incomplete_assignment(
     assert r.status_code == 200
     body = r.json()
     assert body["strategy_id"] == strategy["id"]
-    assert body["status"] == "SETUP_INCOMPLETE"
+    assert body["status"] == "PENDING_APPROVAL"
     assert body["master_lot"] == "2.00"
     assert body["multiplier_max"] == "20.0000"
     assert body["confirmed_risk_disclosure"] is False

@@ -1,3 +1,8 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
 import type { AdminAssignment, AdminMt5ConnectionView, AdminUser } from "@/lib/api";
 
 import { MetaApiAttachCell } from "./MetaApiAttachCell";
@@ -11,8 +16,24 @@ export function AdminClientsOverview({
   assignments: AdminAssignment[];
   mt5Connections: AdminMt5ConnectionView[];
 }) {
+  const router = useRouter();
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const clients = users.filter((u) => u.role === "USER");
   const mt5ByUser = new Map(mt5Connections.map((c) => [c.user_display_name, c]));
+
+  async function approve(assignmentId: string) {
+    setBusyId(assignmentId);
+    setError(null);
+    const res = await fetch(`/api/admin/assignments/${assignmentId}/approve`, { method: "POST" });
+    setBusyId(null);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `approve failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
 
   return (
     <div className="card">
@@ -31,7 +52,7 @@ export function AdminClientsOverview({
                 <th>MT5 bridge</th>
                 <th>Bridge state</th>
                 <th>MetaApi (real order routing)</th>
-                <th>Active subscriptions</th>
+                <th>Strategy subscriptions</th>
                 <th>Account state</th>
                 <th>Kill switch</th>
               </tr>
@@ -64,11 +85,43 @@ export function AdminClientsOverview({
                       <MetaApiAttachCell connection={mt5} />
                     </td>
                     <td>
-                      {clientAssignments.length === 0
-                        ? "None"
-                        : clientAssignments
-                            .map((a) => `${a.strategy_key} (${a.multiplier}x)`)
-                            .join(", ")}
+                      {clientAssignments.length === 0 ? (
+                        "None"
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {clientAssignments.map((a) => (
+                            <div
+                              key={a.id}
+                              style={{ display: "flex", alignItems: "center", gap: 8 }}
+                            >
+                              <span style={{ fontSize: 12.5 }}>
+                                {a.strategy_key} ({a.multiplier}x)
+                              </span>
+                              <span
+                                className={`badge-pill ${
+                                  a.status === "ACTIVE"
+                                    ? "badge-green"
+                                    : a.status === "PENDING_APPROVAL"
+                                      ? "badge-warn"
+                                      : "badge-neutral"
+                                }`}
+                              >
+                                {a.status}
+                              </span>
+                              {a.status === "PENDING_APPROVAL" ? (
+                                <button
+                                  className="secondary"
+                                  style={{ padding: "2px 8px", fontSize: 11.5 }}
+                                  disabled={busyId === a.id}
+                                  onClick={() => void approve(a.id)}
+                                >
+                                  {busyId === a.id ? "..." : "Approve (paid)"}
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <span className={`badge-pill ${u.is_active ? "badge-green" : "badge-bad"}`}>
@@ -87,6 +140,11 @@ export function AdminClientsOverview({
           </table>
         </div>
       )}
+      {error ? (
+        <p style={{ color: "var(--bad)", marginTop: 12 }} role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }

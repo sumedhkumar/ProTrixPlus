@@ -51,10 +51,18 @@ class UserRole(str, enum.Enum):
 
 
 class AssignmentStatus(str, enum.Enum):
-    # A brand-new admin grant starts here - not eligible for fan-out
-    # (worker/app/fanout.py only admits ACTIVE) until the client completes
-    # the setup wizard (sizing + MT5 connection) and explicitly confirms the
-    # risk disclosure via POST /me/assignments/{id}/confirm-start.
+    # A client self-subscribing (no admin involved) starts here - visible in
+    # their "My Strategies" list but locked: no Setup Wizard access yet.
+    # Only an admin moving it to SETUP_INCOMPLETE (after confirming the
+    # strategy's subscription price was actually paid, out-of-band for MVP)
+    # unlocks it. An admin creating the assignment directly (the original
+    # admin-grant fallback) skips this and starts at SETUP_INCOMPLETE, since
+    # the admin is already vouching that payment is settled.
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    # Payment confirmed - not eligible for fan-out (worker/app/fanout.py only
+    # admits ACTIVE) until the client completes the setup wizard (sizing +
+    # MT5 connection) and explicitly confirms the risk disclosure via
+    # POST /me/assignments/{id}/confirm-start.
     SETUP_INCOMPLETE = "SETUP_INCOMPLETE"
     ACTIVE = "ACTIVE"
     PAUSED = "PAUSED"

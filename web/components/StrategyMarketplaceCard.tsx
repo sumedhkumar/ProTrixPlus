@@ -224,7 +224,23 @@ export function StrategyMarketplaceCard({
         </span>
       </div>
 
-      {assignment?.status === "SETUP_INCOMPLETE" ? (
+      {assignment?.status === "PENDING_APPROVAL" ? (
+        <>
+          <button
+            type="button"
+            className="secondary"
+            disabled
+            title="Waiting for an admin to confirm your subscription payment"
+            style={{ width: "100%", opacity: 0.7, cursor: "not-allowed" }}
+          >
+            🔒 Awaiting Payment Approval
+          </button>
+          <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
+            Subscription requested. Complete payment for this strategy - once an admin confirms
+            it, you&apos;ll be able to connect MT5 and go live.
+          </p>
+        </>
+      ) : assignment?.status === "SETUP_INCOMPLETE" ? (
         <>
           <button
             type="button"
@@ -235,7 +251,7 @@ export function StrategyMarketplaceCard({
             ⚡ Complete Setup →
           </button>
           <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
-            Access granted - finish sizing, connect your MT5 account, and confirm to go live.
+            Payment confirmed - finish sizing, connect your MT5 account, and confirm to go live.
           </p>
         </>
       ) : assignment ? (
@@ -267,8 +283,8 @@ export function StrategyMarketplaceCard({
             {busy ? "Subscribing..." : "⚡ Subscribe"}
           </button>
           <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
-            Instant, self-service - no admin approval needed. You&apos;ll size your position and
-            connect MT5 next.
+            Instant request, no admin approval needed to see or request it - but it stays locked
+            until you pay and an admin confirms.
           </p>
         </>
       )}
