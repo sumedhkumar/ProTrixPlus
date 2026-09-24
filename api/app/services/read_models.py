@@ -164,9 +164,12 @@ def ops_summary(session: Session) -> dict[str, Any]:
     at the data layer (signal_id uniqueness, ExecutionState.UNKNOWN); this is
     what surfaces them for an admin instead of only being visible in logs.
     """
-    execution_state_counts = dict(
-        session.execute(select(Execution.state, func.count()).group_by(Execution.state)).all()
-    )
+    execution_state_counts: dict[str, int] = {
+        state: count
+        for state, count in session.execute(
+            select(Execution.state, func.count()).group_by(Execution.state)
+        )
+    }
     total_signals = session.scalar(select(func.count()).select_from(Signal)) or 0
     total_executions = session.scalar(select(func.count()).select_from(Execution)) or 0
     revoked_assignments = (

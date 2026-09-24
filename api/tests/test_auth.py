@@ -129,9 +129,7 @@ def test_signup_trial_rejects_duplicate_email(client: TestClient) -> None:
 
 def test_signup_trial_without_phone_still_creates_account(client: TestClient) -> None:
     """Phone isn't collected on the trial form for now - must stay optional."""
-    r = client.post(
-        "/auth/signup-trial", json={"name": "Priya", "email": "priya@example.test"}
-    )
+    r = client.post("/auth/signup-trial", json={"name": "Priya", "email": "priya@example.test"})
     assert r.status_code == 201
     assert r.json()["email"] == "priya@example.test"
 

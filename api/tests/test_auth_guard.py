@@ -117,21 +117,26 @@ def test_auditor_and_off_lane_tiers_cannot_write(
     # STRATEGY_ADMIN is the only non-SUPER_ADMIN role allowed to write alerts;
     # ops/finance admins (and, by the same guard, AUDITOR) must be rejected.
     token = _token(identity, role)
-    r = client_no_db.post(
-        write_path, json=write_body, headers={"Authorization": f"Bearer {token}"}
-    )
+    r = client_no_db.post(write_path, json=write_body, headers={"Authorization": f"Bearer {token}"})
     if role is UserRole.STRATEGY_ADMIN:
         assert r.status_code not in (401, 403)
     else:
         assert r.status_code == 403
 
 
-def test_auditor_cannot_write_anywhere(client_no_db: TestClient, identity: MockIdentityProvider) -> None:
+def test_auditor_cannot_write_anywhere(
+    client_no_db: TestClient, identity: MockIdentityProvider
+) -> None:
     token = _token(identity, UserRole.AUDITOR)
     headers = {"Authorization": f"Bearer {token}"}
-    assert client_no_db.post("/api/v1/admin/alerts", json={"name": "x"}, headers=headers).status_code == 403
     assert (
-        client_no_db.post("/api/v1/admin/strategies", json={"name": "x"}, headers=headers).status_code
+        client_no_db.post("/api/v1/admin/alerts", json={"name": "x"}, headers=headers).status_code
+        == 403
+    )
+    assert (
+        client_no_db.post(
+            "/api/v1/admin/strategies", json={"name": "x"}, headers=headers
+        ).status_code
         == 403
     )
     assert (

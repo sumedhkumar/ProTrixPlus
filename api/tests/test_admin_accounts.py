@@ -102,7 +102,11 @@ def test_invite_existing_email_updates_roles_without_new_token(
 
     r = client.post(
         "/api/v1/admin/invites",
-        json={"email": "already@example.test", "display_name": "Already Admin", "roles": ["AUDITOR"]},
+        json={
+            "email": "already@example.test",
+            "display_name": "Already Admin",
+            "roles": ["AUDITOR"],
+        },
         headers=_auth(token),
     )
     assert r.status_code == 201
@@ -122,7 +126,9 @@ def test_invite_rejects_user_role_only(client: TestClient, super_admin) -> None:
 
 
 def test_non_super_admin_cannot_invite(client: TestClient, db, identity) -> None:
-    ops = User(email="ops-only@example.test", display_name="Ops", role=UserRole.OPERATIONS_ADMIN.value)
+    ops = User(
+        email="ops-only@example.test", display_name="Ops", role=UserRole.OPERATIONS_ADMIN.value
+    )
     db.add(ops)
     db.commit()
     db.refresh(ops)
@@ -143,7 +149,11 @@ def test_patch_user_roles_updates_and_notifies(
     _, token = super_admin
     invite = client.post(
         "/api/v1/admin/invites",
-        json={"email": "editme@example.test", "display_name": "Edit Me", "roles": ["STRATEGY_ADMIN"]},
+        json={
+            "email": "editme@example.test",
+            "display_name": "Edit Me",
+            "roles": ["STRATEGY_ADMIN"],
+        },
         headers=_auth(token),
     ).json()
     mock_email.sent.clear()
@@ -176,7 +186,8 @@ def test_deactivate_blocks_login_then_reactivate_restores_it(
     assert deact.json()["is_active"] is False
 
     login = client.post(
-        "/auth/login", json={"email": "todeactivate@example.test", "password": "correct-horse-battery"}
+        "/auth/login",
+        json={"email": "todeactivate@example.test", "password": "correct-horse-battery"},
     )
     assert login.status_code == 401
 
@@ -185,7 +196,8 @@ def test_deactivate_blocks_login_then_reactivate_restores_it(
     assert react.json()["is_active"] is True
 
     login2 = client.post(
-        "/auth/login", json={"email": "todeactivate@example.test", "password": "correct-horse-battery"}
+        "/auth/login",
+        json={"email": "todeactivate@example.test", "password": "correct-horse-battery"},
     )
     assert login2.status_code == 200
 
@@ -244,7 +256,9 @@ def test_can_strip_super_admin_role_when_another_one_remains(
     client: TestClient, super_admin, db
 ) -> None:
     user, token = super_admin
-    other = User(email="other-root@example.test", display_name="Other", role=UserRole.SUPER_ADMIN.value)
+    other = User(
+        email="other-root@example.test", display_name="Other", role=UserRole.SUPER_ADMIN.value
+    )
     db.add(other)
     db.commit()
 

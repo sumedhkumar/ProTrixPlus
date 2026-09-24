@@ -62,7 +62,7 @@ def _mock_price(symbol: str, seed: str) -> Decimal:
     base - same hash-of-id idiom as :func:`_det_id`, just mapped to a decimal
     range instead of a hex id."""
     base = _BASE_PRICES.get(symbol.upper(), _DEFAULT_BASE_PRICE)
-    digest = hashlib.sha1(f"{symbol}:{seed}".encode("utf-8")).hexdigest()  # noqa: S324
+    digest = hashlib.sha1(f"{symbol}:{seed}".encode()).hexdigest()  # noqa: S324
     raw = int(digest[:6], 16)
     fraction = (Decimal(raw) / Decimal(0xFFFFFF)) - Decimal("0.5")  # in [-0.5, 0.5]
     offset = base * fraction * Decimal("0.01")  # up to +/-0.5% of base
@@ -237,7 +237,9 @@ def _find_open_position(
     return (row[0], row[1]) if row is not None else None
 
 
-def _realized_pnl(*, entry_price: Decimal, exit_price: Decimal, volume: Decimal, side: str) -> Decimal:
+def _realized_pnl(
+    *, entry_price: Decimal, exit_price: Decimal, volume: Decimal, side: str
+) -> Decimal:
     direction = 1 if side.upper() == "BUY" else -1
     pnl = (exit_price - entry_price) * volume * direction
     return pnl.quantize(_PNL_QUANT, rounding=ROUND_HALF_EVEN)

@@ -139,7 +139,9 @@ def send_admin_invite_email(
     sender.send(to=to, subject=subject, body_text=body)
 
 
-def send_admin_roles_updated_email(sender: EmailSender, *, to: str, display_name: str, role_labels: list[str]) -> None:
+def send_admin_roles_updated_email(
+    sender: EmailSender, *, to: str, display_name: str, role_labels: list[str]
+) -> None:
     roles = ", ".join(role_labels)
     subject = "Your ProTrixPlus admin roles were updated"
     body = (

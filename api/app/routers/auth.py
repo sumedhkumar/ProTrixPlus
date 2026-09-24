@@ -295,8 +295,7 @@ def login_google(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "complete your first login with the emailed password "
-                "before using Google sign-in"
+                "complete your first login with the emailed password " "before using Google sign-in"
             ),
         )
 

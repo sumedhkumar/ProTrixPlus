@@ -8,7 +8,6 @@ gets 403 on every path here.
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -39,9 +38,7 @@ router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
 # still reach everything; AUDITOR is added only to the read-only variants.
 _SUPER = Depends(require_role(UserRole.SUPER_ADMIN))
 _OPS = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN))
-_OPS_READ = Depends(
-    require_role(UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN, UserRole.AUDITOR)
-)
+_OPS_READ = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.OPERATIONS_ADMIN, UserRole.AUDITOR))
 _STRATEGY = Depends(require_role(UserRole.SUPER_ADMIN, UserRole.STRATEGY_ADMIN))
 _STRATEGY_READ = Depends(
     require_role(UserRole.SUPER_ADMIN, UserRole.STRATEGY_ADMIN, UserRole.AUDITOR)
@@ -584,6 +581,10 @@ def admin_resend_invite(
     labels = _role_labels([UserRole(user.role), *[UserRole(r) for r in extra]])
     invite_url = f"{get_settings().frontend_base_url}/reset-password?token={raw_token}"
     notifications.send_admin_invite_email(
-        sender, to=user.email, display_name=user.display_name, invite_url=invite_url, role_labels=labels
+        sender,
+        to=user.email,
+        display_name=user.display_name,
+        invite_url=invite_url,
+        role_labels=labels,
     )
     return {"id": str(user.id), "resent": True}
