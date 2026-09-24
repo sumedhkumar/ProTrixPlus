@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 
 import { apiFetch, ApiError } from "@/lib/api";
 import { TOKEN_COOKIE } from "@/lib/auth";
+import type { Role } from "@/lib/roles";
 
 interface AuthResponse {
   access_token: string;
-  role: "USER" | "SUPER_ADMIN";
+  role: Role;
   display_name: string;
   subject: string;
   must_change_password: boolean;

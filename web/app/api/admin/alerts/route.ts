@@ -17,7 +17,7 @@ export async function GET() {
   }
 }
 
-/** POST /api/admin/alerts -> api POST /api/v1/admin/alerts (api enforces SUPER_ADMIN) */
+/** POST /api/admin/alerts -> api POST /api/v1/admin/alerts (api enforces STRATEGY_ADMIN/SUPER_ADMIN) */
 export async function POST(req: Request) {
   return proxyToApi("/api/v1/admin/alerts", "POST", req);
 }

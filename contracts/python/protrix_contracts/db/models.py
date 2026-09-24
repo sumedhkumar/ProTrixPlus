@@ -48,6 +48,15 @@ from protrix_contracts.db.base import Base
 class UserRole(str, enum.Enum):
     USER = "USER"
     SUPER_ADMIN = "SUPER_ADMIN"
+    # Functional admin tiers (segregation of duties below SUPER_ADMIN, which
+    # can still do everything these can): OPERATIONS_ADMIN handles client
+    # support/MT5 connections, STRATEGY_ADMIN owns the strategy/alert catalog,
+    # FINANCE_ADMIN handles payments/entitlements/settlement, and AUDITOR is
+    # read-only across all admin GET endpoints.
+    OPERATIONS_ADMIN = "OPERATIONS_ADMIN"
+    STRATEGY_ADMIN = "STRATEGY_ADMIN"
+    FINANCE_ADMIN = "FINANCE_ADMIN"
+    AUDITOR = "AUDITOR"
 
 
 class AssignmentStatus(str, enum.Enum):
@@ -371,6 +380,47 @@ class PasswordResetToken(Base):
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class UserRoleGrant(Base):
+    """An admin role held by a user IN ADDITION to ``User.role`` (the
+    account's primary role, embedded in the JWT). Lets one account hold
+    several admin tiers at once (e.g. OPERATIONS_ADMIN + FINANCE_ADMIN)
+    without reshaping the JWT/Claims - ``require_role`` in app/security.py
+    checks ``{claims.role} | {grants for claims.subject}`` against the
+    allowed set.
+    """
+
+    __tablename__ = "user_role_grants"
+    __table_args__ = (CheckConstraint(_in("role", UserRole), name="user_role_grants_role_allowed"),)
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(20), primary_key=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
+class AdminInvite(Base):
+    """An admin-invite link sent to a (possibly brand-new) User row created
+    with no password yet. Same hashed-token/expiry/used_at shape as
+    PasswordResetToken (see its docstring for why the hash is unsalted) but
+    kept as a separate table: semantically this is "set up your new admin
+    account", not "you forgot your password" - app/routers/auth.py's
+    reset-password endpoint accepts either token kind at the same URL.
+    """
+
+    __tablename__ = "admin_invites"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    # Who sent the invite; NULL means the system bootstrap (see
+    # app/main.py's lifespan ensuring the configured SUPER_ADMIN exists).
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

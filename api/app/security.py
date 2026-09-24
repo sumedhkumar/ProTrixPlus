@@ -7,14 +7,18 @@ role-gated (the admin router does this).
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import Callable
 from functools import lru_cache
 from hmac import compare_digest
 
 from fastapi import Depends, Header, HTTPException, Path, status
-from protrix_contracts.db.models import UserRole
+from protrix_contracts.db.models import User, UserRole, UserRoleGrant
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
+from app.db import get_db
 from app.identity import Claims, IdentityError, IdentityProvider, MockIdentityProvider
 
 
@@ -41,10 +45,11 @@ def _bearer(authorization: str | None) -> str:
 def current_claims(
     authorization: str | None = Header(default=None),
     provider: IdentityProvider = Depends(get_identity_provider),
+    db: Session = Depends(get_db),
 ) -> Claims:
     token = _bearer(authorization)
     try:
-        return provider.verify(token)
+        claims = provider.verify(token)
     except IdentityError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -52,17 +57,37 @@ def current_claims(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
+    # A deactivated account's outstanding tokens must stop working immediately
+    # rather than staying valid until they expire - re-check against the DB on
+    # every request. A token whose subject has no row at all is left alone (not
+    # every caller of this dependency requires a persisted User).
+    user = db.get(User, uuid.UUID(claims.subject))
+    if user is not None and not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="account is inactive",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return claims
+
 
 def require_role(*roles: UserRole) -> Callable[..., Claims]:
     allowed = set(roles) or set(UserRole)
 
-    def _guard(claims: Claims = Depends(current_claims)) -> Claims:
-        if claims.role not in allowed:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"role {claims.role.value} not permitted here",
-            )
-        return claims
+    def _guard(claims: Claims = Depends(current_claims), db: Session = Depends(get_db)) -> Claims:
+        if claims.role in allowed:
+            return claims
+        # A user can hold extra admin roles beyond their primary claims.role
+        # (see UserRoleGrant's docstring) - check those before rejecting.
+        extra_roles = db.scalars(
+            select(UserRoleGrant.role).where(UserRoleGrant.user_id == uuid.UUID(claims.subject))
+        ).all()
+        if any(UserRole(r) in allowed for r in extra_roles):
+            return claims
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"role {claims.role.value} not permitted here",
+        )
 
     return _guard
 

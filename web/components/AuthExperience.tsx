@@ -6,9 +6,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AuthShell } from "@/components/AuthShell";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { homePathForRole, type Role } from "@/lib/roles";
 
 export type AuthMode = "signin" | "signup";
-type Role = "USER" | "SUPER_ADMIN";
 
 interface Alert {
   tone: "error" | "info";
@@ -188,7 +188,7 @@ export function AuthExperience({ initialMode, googleClientId }: AuthExperiencePr
       if (mustChangePassword) {
         router.push("/set-password");
       } else {
-        router.push(role === "SUPER_ADMIN" ? "/admin" : "/dashboard");
+        router.push(homePathForRole(role));
       }
       router.refresh();
     },
@@ -243,7 +243,7 @@ export function AuthExperience({ initialMode, googleClientId }: AuthExperiencePr
       setAlert({ tone: "error", message: `sign-in failed (${res.status})` });
       return;
     }
-    router.push(role === "SUPER_ADMIN" ? "/admin" : "/dashboard");
+    router.push(homePathForRole(role));
     router.refresh();
   }
 
@@ -549,23 +549,27 @@ export function AuthExperience({ initialMode, googleClientId }: AuthExperiencePr
                         <span className="inline-divider-label">
                           Dev/testing only - mock identity, no password
                         </span>
-                        <div style={{ display: "flex", gap: 10 }}>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void signInMock("USER")}
-                            disabled={busy !== null}
-                          >
-                            Mock USER
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            onClick={() => void signInMock("SUPER_ADMIN")}
-                            disabled={busy !== null}
-                          >
-                            Mock SUPER_ADMIN
-                          </button>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          {(
+                            [
+                              "USER",
+                              "SUPER_ADMIN",
+                              "OPERATIONS_ADMIN",
+                              "STRATEGY_ADMIN",
+                              "FINANCE_ADMIN",
+                              "AUDITOR",
+                            ] as const
+                          ).map((mockRole) => (
+                            <button
+                              key={mockRole}
+                              type="button"
+                              className="secondary"
+                              onClick={() => void signInMock(mockRole)}
+                              disabled={busy !== null}
+                            >
+                              Mock {mockRole}
+                            </button>
+                          ))}
                         </div>
                       </div>
                     </form>

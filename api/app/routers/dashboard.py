@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.identity import Claims
 from app.security import current_claims
-from app.services import read_models, subscriptions
+from app.services import admin_accounts, read_models, subscriptions
 
 router = APIRouter(prefix="/api/v1", tags=["dashboard"])
 
@@ -24,6 +24,7 @@ def me(db: Session = Depends(get_db), claims: Claims = Depends(current_claims)) 
     return {
         "subject": claims.subject,
         "role": claims.role.value,
+        "extra_roles": admin_accounts.extra_roles_for(db, user.id) if user else [],
         "display_name": claims.display_name,
         "email": claims.email,
         "issued_at": claims.issued_at.isoformat(),

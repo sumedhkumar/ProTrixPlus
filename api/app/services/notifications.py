@@ -121,3 +121,30 @@ def send_password_reset_email(sender: EmailSender, *, to: str, reset_url: str) -
         "- ProTrixPlus"
     )
     sender.send(to=to, subject=subject, body_text=body)
+
+
+def send_admin_invite_email(
+    sender: EmailSender, *, to: str, display_name: str, invite_url: str, role_labels: list[str]
+) -> None:
+    roles = ", ".join(role_labels)
+    subject = "You've been invited to the ProTrixPlus admin team"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"You've been added to the ProTrixPlus admin panel with the following "
+        f"role(s): {roles}.\n\n"
+        f"Set your password here (valid for 7 days): {invite_url}\n\n"
+        "If you weren't expecting this, you can safely ignore this email.\n\n"
+        "- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)
+
+
+def send_admin_roles_updated_email(sender: EmailSender, *, to: str, display_name: str, role_labels: list[str]) -> None:
+    roles = ", ".join(role_labels)
+    subject = "Your ProTrixPlus admin roles were updated"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"Your ProTrixPlus admin roles are now: {roles}.\n\n"
+        "Log in to the admin panel to see what's changed.\n\n- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)

@@ -8,9 +8,12 @@ import type { AlertView, StrategyView } from "@/lib/api";
 export function AdminStrategyCatalog({
   strategies,
   alerts,
+  canEdit,
 }: {
   strategies: StrategyView[];
   alerts: AlertView[];
+  /** STRATEGY_ADMIN/SUPER_ADMIN can create/toggle/bundle; everyone else views read-only. */
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -136,9 +139,11 @@ export function AdminStrategyCatalog({
     <div className="card">
       <div className="card-head">
         <span className="card-title">Strategy Lifecycle &amp; Catalog Management</span>
-        <button type="button" className="btn-primary" onClick={() => setShowCreateModal(true)}>
-          + Create Strategy
-        </button>
+        {canEdit ? (
+          <button type="button" className="btn-primary" onClick={() => setShowCreateModal(true)}>
+            + Create Strategy
+          </button>
+        ) : null}
       </div>
       <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: -6, marginBottom: 14 }}>
         New strategies are created hidden from clients. Set a price and profit-share %, then click
@@ -191,24 +196,28 @@ export function AdminStrategyCatalog({
                     return (
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            className="secondary"
-                            disabled={busy || blockedByPricing}
-                            title={
-                              blockedByPricing
-                                ? "Set a price and profit-share % (below) before approving this strategy for clients"
-                                : undefined
-                            }
-                            onClick={() => void toggle(s.id, s.is_active)}
-                          >
-                            {s.is_active ? "Turn OFF" : "Approve & Enable"}
-                          </button>
+                          {canEdit ? (
+                            <button
+                              className="secondary"
+                              disabled={busy || blockedByPricing}
+                              title={
+                                blockedByPricing
+                                  ? "Set a price and profit-share % (below) before approving this strategy for clients"
+                                  : undefined
+                              }
+                              onClick={() => void toggle(s.id, s.is_active)}
+                            >
+                              {s.is_active ? "Turn OFF" : "Approve & Enable"}
+                            </button>
+                          ) : null}
                           <button className="secondary" onClick={() => void viewAlertConfig(s.id)}>
                             Alert config
                           </button>
-                          <button className="secondary" onClick={() => openBundle(s.id)}>
-                            Bundle alerts
-                          </button>
+                          {canEdit ? (
+                            <button className="secondary" onClick={() => openBundle(s.id)}>
+                              Bundle alerts
+                            </button>
+                          ) : null}
                         </div>
                         {blockedByPricing ? (
                           <span style={{ fontSize: 11, color: "var(--dim)" }}>

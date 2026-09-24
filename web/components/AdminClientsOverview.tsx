@@ -1,3 +1,8 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
 import type { AdminAssignment, AdminMt5ConnectionView, AdminUser } from "@/lib/api";
 
 import { MetaApiAttachCell } from "./MetaApiAttachCell";
@@ -6,13 +11,33 @@ export function AdminClientsOverview({
   users,
   assignments,
   mt5Connections,
+  canDeactivate,
 }: {
   users: AdminUser[];
   assignments: AdminAssignment[];
   mt5Connections: AdminMt5ConnectionView[];
+  /** Only SUPER_ADMIN can deactivate/reactivate a client account. */
+  canDeactivate: boolean;
 }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const clients = users.filter((u) => u.role === "USER");
   const mt5ByUser = new Map(mt5Connections.map((c) => [c.user_display_name, c]));
+
+  async function toggleActive(user: AdminUser) {
+    setBusy(user.id);
+    setError(null);
+    const action = user.is_active ? "deactivate" : "reactivate";
+    const res = await fetch(`/api/admin/users/${user.id}/${action}`, { method: "POST" });
+    setBusy(null);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `${action} failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
 
   return (
     <div className="card">
@@ -33,7 +58,7 @@ export function AdminClientsOverview({
                 <th>MetaApi (real order routing)</th>
                 <th>Active subscriptions</th>
                 <th>Account state</th>
-                <th>Kill switch</th>
+                <th>Account</th>
               </tr>
             </thead>
             <tbody>
@@ -76,9 +101,17 @@ export function AdminClientsOverview({
                       </span>
                     </td>
                     <td>
-                      <button className="secondary" disabled title="Demo only - not wired up yet">
-                        Disable
-                      </button>
+                      {canDeactivate ? (
+                        <button
+                          className={u.is_active ? "btn-danger" : "secondary"}
+                          disabled={busy === u.id}
+                          onClick={() => void toggleActive(u)}
+                        >
+                          {u.is_active ? "Deactivate" : "Reactivate"}
+                        </button>
+                      ) : (
+                        <span style={{ color: "var(--dim)", fontSize: 12 }}>-</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -87,6 +120,11 @@ export function AdminClientsOverview({
           </table>
         </div>
       )}
+      {error ? (
+        <p style={{ color: "var(--bad)", marginTop: 12 }} role="alert">
+          {error}
+        </p>
+      ) : null}
     </div>
   );
 }
