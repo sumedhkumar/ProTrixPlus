@@ -193,10 +193,14 @@ def test_already_closed_position_rejects_a_second_close(sf, redis_client, seeded
     adapter = MockExecutionAdapter(sf, redis_client)
     _seed_open_entry(sf, adapter, seeded, "alice", signal_id="sig-close-2", position_ref="pos-3")
 
-    first = adapter.place(_close_order("coid-close-2a", user_id=seeded["alice"], position_ref="pos-3"))
+    first = adapter.place(
+        _close_order("coid-close-2a", user_id=seeded["alice"], position_ref="pos-3")
+    )
     assert first.status == "ACKNOWLEDGED"
 
-    second = adapter.place(_close_order("coid-close-2b", user_id=seeded["alice"], position_ref="pos-3"))
+    second = adapter.place(
+        _close_order("coid-close-2b", user_id=seeded["alice"], position_ref="pos-3")
+    )
     assert second.status == "REJECTED"
     assert second.raw["reason"] == "no_matching_open_position"
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import secrets as _secrets
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 from cryptography.fernet import Fernet, InvalidToken
 from protrix_contracts.db.models import VaultSecret
@@ -100,4 +101,6 @@ class RealCredentialVault:
             plaintext = self._fernet.decrypt(row.ciphertext.encode("ascii"))
         except InvalidToken as exc:
             raise VaultError(f"credential handle {handle_id} failed integrity check") from exc
-        return json.loads(plaintext.decode("utf-8"))
+        # Fernet already authenticates the ciphertext (HMAC) - this app wrote
+        # it, so the shape is trusted, not re-validated at runtime.
+        return cast("dict[str, str]", json.loads(plaintext.decode("utf-8")))

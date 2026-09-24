@@ -16,6 +16,10 @@ def _boot(monkeypatch: pytest.MonkeyPatch, *, secret: str) -> None:
     monkeypatch.setenv("PROTRIX_APP_ENV", "prod")
     monkeypatch.setenv("PROTRIX_DEV_IDENTITY_ENABLED", "false")
     monkeypatch.setenv("PROTRIX_DEV_JWT_SECRET", secret)
+    # This test is only about the JWT-secret guard; the bootstrap-SUPER_ADMIN
+    # step (also gated on is_production) needs a real DB, which this unit
+    # test doesn't set up - disable it here, it has its own tests.
+    monkeypatch.setenv("PROTRIX_BOOTSTRAP_SUPER_ADMIN_EMAIL", "")
     get_settings.cache_clear()
     app = create_app()
     with TestClient(app):

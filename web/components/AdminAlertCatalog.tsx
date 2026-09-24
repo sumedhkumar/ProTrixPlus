@@ -5,7 +5,14 @@ import { useState } from "react";
 
 import type { AlertChangelogEntry, AlertView } from "@/lib/api";
 
-export function AdminAlertCatalog({ alerts }: { alerts: AlertView[] }) {
+export function AdminAlertCatalog({
+  alerts,
+  canEdit,
+}: {
+  alerts: AlertView[];
+  /** STRATEGY_ADMIN/SUPER_ADMIN can create alerts; everyone else views the catalog read-only. */
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,38 +135,44 @@ export function AdminAlertCatalog({ alerts }: { alerts: AlertView[] }) {
         </div>
       ) : null}
 
-      <form
-        onSubmit={(e) => void create(e)}
-        style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 16 }}
-      >
-        <input
-          placeholder="name (e.g. EURUSD Scalper Entry)"
-          value={form.name}
-          onChange={(e) => setForm({ ...form, name: e.target.value })}
-          required
-        />
-        <input
-          placeholder="symbol (e.g. EURUSD)"
-          value={form.symbol}
-          onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })}
-          required
-        />
-        <input
-          placeholder="lot size"
-          value={form.lot_size}
-          onChange={(e) => setForm({ ...form, lot_size: e.target.value })}
-          required
-        />
-        <input
-          placeholder="timeframe (e.g. 5m)"
-          value={form.timeframe}
-          onChange={(e) => setForm({ ...form, timeframe: e.target.value })}
-          required
-        />
-        <button type="submit" disabled={busy}>
-          Create alert
-        </button>
-      </form>
+      {canEdit ? (
+        <form
+          onSubmit={(e) => void create(e)}
+          style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginTop: 16 }}
+        >
+          <input
+            placeholder="name (e.g. EURUSD Scalper Entry)"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            required
+          />
+          <input
+            placeholder="symbol (e.g. EURUSD)"
+            value={form.symbol}
+            onChange={(e) => setForm({ ...form, symbol: e.target.value.toUpperCase() })}
+            required
+          />
+          <input
+            placeholder="lot size"
+            value={form.lot_size}
+            onChange={(e) => setForm({ ...form, lot_size: e.target.value })}
+            required
+          />
+          <input
+            placeholder="timeframe (e.g. 5m)"
+            value={form.timeframe}
+            onChange={(e) => setForm({ ...form, timeframe: e.target.value })}
+            required
+          />
+          <button type="submit" disabled={busy}>
+            Create alert
+          </button>
+        </form>
+      ) : (
+        <p style={{ color: "var(--dim)", fontSize: 12, marginTop: 16 }}>
+          Read-only: your role can&apos;t create or edit alerts.
+        </p>
+      )}
       {error ? (
         <p style={{ color: "var(--bad)", marginTop: 12 }} role="alert">
           {error}

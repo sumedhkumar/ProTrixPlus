@@ -136,8 +136,12 @@ def test_close_signal_fills_by_closing_the_matching_entry(sf, redis_client, seed
     open ENTRY (not a fresh position) and reaches FILLED, with the entry's own
     execution row carrying the exit_price/realized_pnl."""
     adapter = MockExecutionAdapter(sf, redis_client)
-    entry_sig_id = make_signal(sf, signal_id="sig-entry-close-1", action="BUY", position_ref="pos-x")
-    close_sig_id = make_signal(sf, signal_id="sig-entry-close-2", action="CLOSE", position_ref="pos-x")
+    entry_sig_id = make_signal(
+        sf, signal_id="sig-entry-close-1", action="BUY", position_ref="pos-x"
+    )
+    close_sig_id = make_signal(
+        sf, signal_id="sig-entry-close-2", action="CLOSE", position_ref="pos-x"
+    )
 
     with sf() as session:
         entry_intent = _make_intent_for_signal(
@@ -166,11 +170,15 @@ def test_close_signal_fills_by_closing_the_matching_entry(sf, redis_client, seed
         assert entry_execution.realized_pnl is not None
 
 
-def test_close_signal_with_no_matching_position_is_rejected_cleanly(sf, redis_client, seeded) -> None:
+def test_close_signal_with_no_matching_position_is_rejected_cleanly(
+    sf, redis_client, seeded
+) -> None:
     """A CLOSE signal whose position_ref was never opened must reach REJECTED,
     not raise, and not leave the state machine in an inconsistent place."""
     adapter = MockExecutionAdapter(sf, redis_client)
-    close_sig_id = make_signal(sf, signal_id="sig-orphan-close-1", action="CLOSE", position_ref="never-opened")
+    close_sig_id = make_signal(
+        sf, signal_id="sig-orphan-close-1", action="CLOSE", position_ref="never-opened"
+    )
 
     with sf() as session:
         close_intent = _make_intent_for_signal(

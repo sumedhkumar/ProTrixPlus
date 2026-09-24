@@ -33,6 +33,10 @@ FAKE_USERS = [
     ("bob", "USER", "Bob Trader", "bob@example.test"),
     ("carol", "USER", "Carol Trader", "carol@example.test"),
     ("root", "SUPER_ADMIN", "Root Admin", "root@example.test"),
+    ("ops-admin", "OPERATIONS_ADMIN", "Ops Admin", "ops-admin@example.test"),
+    ("strategy-admin", "STRATEGY_ADMIN", "Strategy Admin", "strategy-admin@example.test"),
+    ("finance-admin", "FINANCE_ADMIN", "Finance Admin", "finance-admin@example.test"),
+    ("auditor", "AUDITOR", "Auditor", "auditor@example.test"),
 ]
 
 # Password-auth demo profiles surfaced by the login page's "1-Click Demo

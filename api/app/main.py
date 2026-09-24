@@ -10,11 +10,35 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import __version__
-from app.config import get_settings
+from app.config import Settings, get_settings
+from app.db import get_session_factory
+from app.email import get_email_sender
 from app.logging_config import configure_logging
 from app.routers import admin, auth, dashboard, dev_identity, health, marketplace, payments, webhook
+from app.services import admin_accounts, notifications
 
 log = logging.getLogger("api")
+
+
+def _ensure_bootstrap_super_admin(settings: Settings) -> None:
+    email = settings.bootstrap_super_admin_email
+    if not email:
+        return
+    session = get_session_factory()()
+    try:
+        user, raw_token = admin_accounts.ensure_bootstrap_super_admin(session, email=email)
+    finally:
+        session.close()
+    if raw_token is not None:
+        invite_url = f"{settings.frontend_base_url}/reset-password?token={raw_token}"
+        notifications.send_admin_invite_email(
+            get_email_sender(),
+            to=user.email,
+            display_name=user.display_name,
+            invite_url=invite_url,
+            role_labels=["Super Admin"],
+        )
+        log.info("bootstrap: created SUPER_ADMIN %s and sent an invite email", user.email)
 
 
 @asynccontextmanager
@@ -38,6 +62,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
             raise RuntimeError(
                 "dev_jwt_secret must be overridden with a strong (32+ char) value in production"
             )
+        _ensure_bootstrap_super_admin(settings)
     yield
     log.info("api shutting down")
 

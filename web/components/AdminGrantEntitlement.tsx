@@ -9,10 +9,13 @@ export function AdminGrantEntitlement({
   users,
   strategies,
   assignments,
+  canManage,
 }: {
   users: AdminUser[];
   strategies: StrategyView[];
   assignments: AdminAssignment[];
+  /** FINANCE_ADMIN/SUPER_ADMIN can grant/revoke; everyone else sees the ledger read-only. */
+  canManage: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -73,61 +76,67 @@ export function AdminGrantEntitlement({
         <span className="card-title">Grant / revoke entitlement</span>
       </div>
 
-      <form
-        onSubmit={(e) => void grant(e)}
-        style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}
-      >
-        <select
-          value={form.user_id}
-          onChange={(e) => setForm({ ...form, user_id: e.target.value })}
-          required
+      {canManage ? (
+        <form
+          onSubmit={(e) => void grant(e)}
+          style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}
         >
-          <option value="">Select client...</option>
-          {users
-            .filter((u) => u.role === "USER")
-            .map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.display_name} ({u.email})
+          <select
+            value={form.user_id}
+            onChange={(e) => setForm({ ...form, user_id: e.target.value })}
+            required
+          >
+            <option value="">Select client...</option>
+            {users
+              .filter((u) => u.role === "USER")
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.display_name} ({u.email})
+                </option>
+              ))}
+          </select>
+          <select
+            value={form.strategy_id}
+            onChange={(e) => setForm({ ...form, strategy_id: e.target.value })}
+            required
+          >
+            <option value="">Select strategy...</option>
+            {strategies.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} ({s.strategy_key}@{s.strategy_version})
               </option>
             ))}
-        </select>
-        <select
-          value={form.strategy_id}
-          onChange={(e) => setForm({ ...form, strategy_id: e.target.value })}
-          required
-        >
-          <option value="">Select strategy...</option>
-          {strategies.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name} ({s.strategy_key}@{s.strategy_version})
-            </option>
-          ))}
-        </select>
-        <input
-          placeholder="master lot"
-          value={form.master_lot}
-          onChange={(e) => setForm({ ...form, master_lot: e.target.value })}
-          required
-        />
-        <input
-          placeholder="initial multiplier"
-          value={form.multiplier}
-          onChange={(e) => setForm({ ...form, multiplier: e.target.value })}
-        />
-        <input
-          placeholder="multiplier min"
-          value={form.multiplier_min}
-          onChange={(e) => setForm({ ...form, multiplier_min: e.target.value })}
-        />
-        <input
-          placeholder="multiplier max"
-          value={form.multiplier_max}
-          onChange={(e) => setForm({ ...form, multiplier_max: e.target.value })}
-        />
-        <button type="submit" disabled={busy !== null}>
-          Grant access
-        </button>
-      </form>
+          </select>
+          <input
+            placeholder="master lot"
+            value={form.master_lot}
+            onChange={(e) => setForm({ ...form, master_lot: e.target.value })}
+            required
+          />
+          <input
+            placeholder="initial multiplier"
+            value={form.multiplier}
+            onChange={(e) => setForm({ ...form, multiplier: e.target.value })}
+          />
+          <input
+            placeholder="multiplier min"
+            value={form.multiplier_min}
+            onChange={(e) => setForm({ ...form, multiplier_min: e.target.value })}
+          />
+          <input
+            placeholder="multiplier max"
+            value={form.multiplier_max}
+            onChange={(e) => setForm({ ...form, multiplier_max: e.target.value })}
+          />
+          <button type="submit" disabled={busy !== null}>
+            Grant access
+          </button>
+        </form>
+      ) : (
+        <p style={{ color: "var(--dim)", fontSize: 12 }}>
+          Read-only: your role can&apos;t grant or revoke entitlements.
+        </p>
+      )}
 
       <div style={{ overflowX: "auto", marginTop: 16 }}>
         <table data-testid="admin-grant-list">
@@ -148,13 +157,15 @@ export function AdminGrantEntitlement({
                 </td>
                 <td>{a.status}</td>
                 <td>
-                  <button
-                    className="secondary"
-                    disabled={busy === a.id}
-                    onClick={() => void revoke(a.id)}
-                  >
-                    Revoke
-                  </button>
+                  {canManage ? (
+                    <button
+                      className="secondary"
+                      disabled={busy === a.id}
+                      onClick={() => void revoke(a.id)}
+                    >
+                      Revoke
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}

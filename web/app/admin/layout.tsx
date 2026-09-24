@@ -13,19 +13,42 @@ import {
   type StrategyView,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { canAccessAdmin } from "@/lib/roles";
+import { canAccessAdmin, canRead, type Capability, type Role } from "@/lib/roles";
 
 const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 
-const TABS: TabDef[] = [
-  { href: "/admin", label: "Strategy Lifecycle", icon: "▤" },
-  { href: "/admin/alerts", label: "Alert Catalog", icon: "⚑" },
-  { href: "/admin/clients", label: "Clients & Risk Caps", icon: "◎" },
-  { href: "/admin/payments", label: "Payment Review", icon: "✉" },
-  { href: "/admin/webhooks", label: "Webhook Telemetry", icon: "◔" },
-  { href: "/admin/trades", label: "Global MT5 Trades", icon: "◷" },
-  { href: "/admin/settlement", label: "EOD Profit-Share Settlement", icon: "$" },
+const TABS: (TabDef & { capabilities: Capability[]; superOnly?: boolean })[] = [
+  { href: "/admin", label: "Strategy Lifecycle", icon: "▤", capabilities: ["strategy"] },
+  { href: "/admin/alerts", label: "Alert Catalog", icon: "⚑", capabilities: ["strategy"] },
+  // Clients mixes ops data (user/MT5 status) with a finance action (entitlement
+  // grants), so either capability is enough to see the tab.
+  {
+    href: "/admin/clients",
+    label: "Clients & Risk Caps",
+    icon: "◎",
+    capabilities: ["ops", "finance"],
+  },
+  { href: "/admin/payments", label: "Payment Review", icon: "✉", capabilities: ["finance"] },
+  { href: "/admin/webhooks", label: "Webhook Telemetry", icon: "◔", capabilities: ["ops"] },
+  { href: "/admin/trades", label: "Global MT5 Trades", icon: "◷", capabilities: ["ops"] },
+  {
+    href: "/admin/settlement",
+    label: "EOD Profit-Share Settlement",
+    icon: "$",
+    capabilities: ["finance"],
+  },
+  // Managing who else is an admin isn't a shared ops/strategy/finance
+  // capability - only SUPER_ADMIN gets this tab.
+  { href: "/admin/team", label: "Admin Team", icon: "★", capabilities: [], superOnly: true },
 ];
+
+function tabsForRole(role: Role, extraRoles: readonly Role[]): TabDef[] {
+  return TABS.filter((tab) =>
+    tab.superOnly
+      ? role === "SUPER_ADMIN"
+      : tab.capabilities.some((cap) => canRead(role, cap, extraRoles)),
+  );
+}
 
 async function checkApiHealth(): Promise<boolean> {
   try {
@@ -74,7 +97,7 @@ export default async function AdminLayout({ children }: { children: ReactNode })
   return (
     <>
       <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
-      <TabNav tabs={TABS} modeLabel="ADMINISTRATOR" />
+      <TabNav tabs={tabsForRole(identity.role, identity.extra_roles)} modeLabel="ADMINISTRATOR" />
       <div className="container">{children}</div>
       <AppFooter />
     </>

@@ -1,4 +1,6 @@
 // Server-only module: only imported from Server Components and route handlers.
+import type { Role } from "@/lib/roles";
+
 const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
@@ -43,7 +45,8 @@ export interface SubscriptionStatusView {
 
 export interface Identity {
   subject: string;
-  role: "USER" | "SUPER_ADMIN";
+  role: Role;
+  extra_roles: Role[];
   display_name: string;
   email: string;
   issued_at: string;
@@ -120,7 +123,10 @@ export interface AdminUser {
   email: string;
   display_name: string;
   role: string;
+  extra_roles: string[];
   is_active: boolean;
+  /** False until an admin-invited account completes its first password setup. */
+  has_password: boolean;
   assignment_count: number;
 }
 
