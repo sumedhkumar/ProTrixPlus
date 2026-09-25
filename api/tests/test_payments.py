@@ -190,6 +190,44 @@ def test_admin_approve_anonymous_submission_creates_account_with_temp_password(
     assert login.json()["must_change_password"] is True
 
 
+def test_admin_approve_anonymous_submission_with_existing_email_renews_account(
+    client: TestClient, admin_token: str, db, existing_user, mock_email: MockEmailSender
+) -> None:
+    """Regression: an unauthenticated submission whose email already belongs
+    to an account (e.g. an earlier trial/Google signup) must renew that
+    account, not crash on the email unique constraint (500)."""
+    original_end = existing_user.subscription_end
+
+    submit = client.post(
+        "/api/v1/payments/submit",
+        json={
+            "name": "Renewing Client",
+            "email": existing_user.email,
+            "phone": "+1-555-0299",
+            "package": "PLAN_3M",
+            "utr_reference": "UTR-DUPE-EMAIL",
+        },
+    )
+    submission_id = submit.json()["id"]
+
+    approve = client.post(
+        f"/api/v1/admin/payment-submissions/{submission_id}/approve", headers=_auth(admin_token)
+    )
+    assert approve.status_code == 200
+    assert approve.json()["status"] == "APPROVED"
+    assert approve.json()["user_id"] == str(existing_user.id)
+
+    db.refresh(existing_user)
+    assert existing_user.subscription_end - original_end >= timedelta(days=89)
+
+    renewal_emails = [
+        e
+        for e in mock_email.sent
+        if e["to"] == existing_user.email and "renewed" in e["subject"].lower()
+    ]
+    assert len(renewal_emails) == 1
+
+
 def test_admin_approve_renewal_stacks_on_active_subscription(
     client: TestClient, admin_token: str, existing_user_token: str, existing_user, mock_email
 ) -> None:
