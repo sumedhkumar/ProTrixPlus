@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 
 import { AppFooter } from "@/components/AppFooter";
 import type { EngineStats } from "@/components/ExecutionEngineStatus";
+import { SidebarNav, type TabDef } from "@/components/SidebarNav";
 import { SubscriptionGraceBanner } from "@/components/SubscriptionStatus";
-import { TabNav, type TabDef } from "@/components/TabNav";
 import { TopBar } from "@/components/TopBar";
 import { apiFetch, type Identity, type Mt5ConnectionView, type StrategyView } from "@/lib/api";
 import { getToken } from "@/lib/auth";
@@ -61,15 +61,17 @@ export default async function DashboardLayout({ children }: { children: ReactNod
 
   return (
     <>
-      <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
-      <TabNav tabs={TABS} modeLabel="CLIENT SUBSCRIBER" />
-      <div className="container">
-        {identity.subscription?.in_grace ? (
-          <SubscriptionGraceBanner subscription={identity.subscription} />
-        ) : null}
-        {children}
+      <SidebarNav tabs={TABS} modeLabel="CLIENT SUBSCRIBER" />
+      <div className="app-shell-with-sidebar">
+        <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
+        <div className="container">
+          {identity.subscription?.in_grace ? (
+            <SubscriptionGraceBanner subscription={identity.subscription} />
+          ) : null}
+          {children}
+        </div>
+        <AppFooter />
       </div>
-      <AppFooter />
     </>
   );
 }

@@ -7,6 +7,16 @@ import type { Mt5ConnectionView } from "@/lib/api";
 
 type Tab = "setup" | "instructions";
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Deploying/redeploying an account genuinely takes a few seconds beyond the
+// initial connect call returning (MetaApi still has to finish the real
+// broker handshake) - poll instead of trusting the very first status.
+const POLL_INTERVAL_MS = 2000;
+const POLL_MAX_ATTEMPTS = 20; // ~40s ceiling before giving up honestly
+
 export function Mt5ConnectionModal({
   connection,
   displayName,
@@ -25,6 +35,12 @@ export function Mt5ConnectionModal({
   const [error, setError] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  // Set only while actively polling after a connect attempt - separate from
+  // `connecting` (the initial POST) so the button/spinner can say something
+  // more honest than just "Connecting..." once that first call is done and
+  // we're now waiting to confirm the broker handshake actually completed.
+  const [pollingStatus, setPollingStatus] = useState<string | null>(null);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -44,16 +60,38 @@ export function Mt5ConnectionModal({
   }
 
   async function disconnect() {
-    setBusy(true);
+    setDisconnecting(true);
     setError(null);
     const res = await fetch("/api/me/mt5-connection", { method: "DELETE" });
-    setBusy(false);
+    setDisconnecting(false);
     if (!res.ok && res.status !== 404) {
       setError(`disconnect failed (${res.status})`);
       return;
     }
     router.refresh();
     onClose();
+  }
+
+  /** Polls real connection status after a connect attempt until it's
+   * actually CONNECTED (or a terminal ERROR), rather than trusting the
+   * very first response - deploying/redeploying an account genuinely
+   * takes a few seconds beyond that first call returning. Gives up
+   * honestly after POLL_MAX_ATTEMPTS rather than spinning forever. */
+  async function pollUntilConnected(initialStatus: string) {
+    let status = initialStatus;
+    setPollingStatus(status);
+    let attempt = 0;
+    while (attempt < POLL_MAX_ATTEMPTS && status !== "CONNECTED" && status !== "ERROR") {
+      attempt += 1;
+      await sleep(POLL_INTERVAL_MS);
+      const res = await fetch("/api/me/mt5-connection/check", { method: "POST" });
+      if (!res.ok) break;
+      const body = (await res.json()) as Mt5ConnectionView;
+      status = body.status;
+      setPollingStatus(status);
+    }
+    setPollingStatus(null);
+    router.refresh();
   }
 
   async function connectWithCredentials(e: React.FormEvent) {
@@ -72,7 +110,8 @@ export function Mt5ConnectionModal({
       setError(body.detail ?? `couldn't connect (${res.status})`);
       return;
     }
-    router.refresh();
+    const body = (await res.json()) as Mt5ConnectionView;
+    await pollUntilConnected(body.status);
   }
 
   async function checkStatus() {
@@ -166,11 +205,23 @@ export function Mt5ConnectionModal({
                 </span>
                 <button
                   type="button"
-                  style={{ background: "var(--bad)", color: "#1a0508" }}
-                  disabled={busy}
+                  style={{
+                    background: "var(--bad)",
+                    color: "#1a0508",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                  disabled={disconnecting}
                   onClick={() => void disconnect()}
                 >
-                  Disconnect
+                  {disconnecting ? (
+                    <>
+                      <span className="spinner" /> Disconnecting...
+                    </>
+                  ) : (
+                    "Disconnect"
+                  )}
                 </button>
               </div>
             ) : null}
@@ -232,19 +283,39 @@ export function Mt5ConnectionModal({
                     Sent directly to MetaApi.cloud to provision your trading connection - never
                     written to our database or logs, and never seen by an admin.
                   </p>
-                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                    <button type="submit" className="btn-primary" disabled={connecting}>
-                      {connecting ? "Connecting..." : "⚡ Connect"}
+                  <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <button
+                      type="submit"
+                      className="btn-primary"
+                      disabled={connecting || pollingStatus !== null}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+                    >
+                      {connecting ? (
+                        <>
+                          <span className="spinner" /> Connecting...
+                        </>
+                      ) : pollingStatus !== null ? (
+                        <>
+                          <span className="spinner" /> Confirming connection...
+                        </>
+                      ) : (
+                        "⚡ Connect"
+                      )}
                     </button>
                     {connection.metaapi_account_id ? (
                       <button
                         type="button"
                         className="secondary"
-                        disabled={checking}
+                        disabled={checking || pollingStatus !== null}
                         onClick={() => void checkStatus()}
                       >
                         {checking ? "Checking..." : "Check status"}
                       </button>
+                    ) : null}
+                    {pollingStatus !== null ? (
+                      <span style={{ color: "var(--dim)", fontSize: 11.5 }}>
+                        Current status: <b>{pollingStatus}</b> - waiting for CONNECTED...
+                      </span>
                     ) : null}
                   </div>
                 </form>

@@ -1,7 +1,5 @@
-import { AiCopilotPanel } from "@/components/AiCopilotPanel";
-import { LiveMt5PositionsDemo } from "@/components/LiveMt5PositionsDemo";
+import { AllStrategiesPanel } from "@/components/AllStrategiesPanel";
 import { Mt5BalanceCard } from "@/components/Mt5BalanceCard";
-import { StrategyMarketplaceCard } from "@/components/StrategyMarketplaceCard";
 import {
   apiFetch,
   type Identity,
@@ -12,14 +10,6 @@ import {
   type StrategyView,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-
-// Fixed illustrative figures - not derived from any real broker balance.
-// Shown only because a broker connection doesn't exist yet (see MetaApi
-// blocker in docs/FULL-BUILD-PLAN.md); always paired with a "DEMO" tag and
-// the real connection status badge, never presented as live.
-const DEMO_BALANCE = "24,850.00";
-const DEMO_EQUITY = "25,490.00";
-const DEMO_FREE_MARGIN = "23,900.00";
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +25,6 @@ export default async function TradingTerminalPage() {
       apiFetch<Identity>("/api/v1/me", token),
       apiFetch<LiveBalance>("/api/v1/me/mt5-connection/balance", token),
     ]);
-  const strategyById = new Map(strategies.map((s) => [s.id, s]));
-  const subscribed = myAssignments
-    .map((a) => ({ assignment: a, strategy: strategyById.get(a.strategy_id) }))
-    .filter((x): x is { assignment: MyAssignmentView; strategy: StrategyView } => !!x.strategy);
 
   return (
     <>
@@ -51,7 +37,6 @@ export default async function TradingTerminalPage() {
         <Mt5BalanceCard
           connection={mt5Connection}
           displayName={identity.display_name}
-          demoBalance={DEMO_BALANCE}
           liveBalance={liveBalance}
         />
 
@@ -101,49 +86,32 @@ export default async function TradingTerminalPage() {
             {liveBalance.available ? (
               <span className="badge-pill badge-green">LIVE</span>
             ) : (
-              <span className="badge-pill badge-demo">DEMO</span>
+              <span className="badge-pill badge-neutral">Not available</span>
             )}
           </div>
-          <div className="stat-value">
-            ${liveBalance.available ? liveBalance.equity?.toFixed(2) : DEMO_EQUITY}
-          </div>
-          <div className="stat-sub">
-            <span>Free Margin:</span>
-            <span style={{ color: "var(--fg)", fontWeight: 700 }}>
-              ${liveBalance.available ? liveBalance.free_margin?.toFixed(2) : DEMO_FREE_MARGIN}
-            </span>
-          </div>
+          {liveBalance.available ? (
+            <>
+              <div className="stat-value">${liveBalance.equity?.toFixed(2)}</div>
+              <div className="stat-sub">
+                <span>Free Margin:</span>
+                <span style={{ color: "var(--fg)", fontWeight: 700 }}>
+                  ${liveBalance.free_margin?.toFixed(2)}
+                </span>
+              </div>
+            </>
+          ) : (
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+              {liveBalance.reason ?? "Connect a live MT5 account to see equity here."}
+            </div>
+          )}
         </div>
       </div>
 
-      <AiCopilotPanel displayName={identity.display_name} accountBalance={DEMO_BALANCE} />
-
-      <div className="card" style={{ marginTop: 20 }}>
-        <div className="card-head">
-          <span className="card-title">Subscribed strategies &amp; multiplier controls</span>
-          <a href="/dashboard/marketplace" className="card-link">
-            Marketplace &amp; multipliers →
-          </a>
-        </div>
-        {subscribed.length === 0 ? (
-          <div className="empty">
-            No strategies granted yet - see the Strategy Marketplace tab, or ask an admin.
-          </div>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-            {subscribed.map(({ assignment, strategy }) => (
-              <StrategyMarketplaceCard
-                key={assignment.id}
-                strategy={strategy}
-                assignment={assignment}
-                mt5Connection={mt5Connection}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <LiveMt5PositionsDemo />
+      <AllStrategiesPanel
+        strategies={strategies}
+        myAssignments={myAssignments}
+        mt5Connection={mt5Connection}
+      />
     </>
   );
 }

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { AppFooter } from "@/components/AppFooter";
 import type { EngineStats } from "@/components/ExecutionEngineStatus";
-import { TabNav, type TabDef } from "@/components/TabNav";
+import { SidebarNav, type TabDef } from "@/components/SidebarNav";
 import { TopBar } from "@/components/TopBar";
 import {
   apiFetch,
@@ -73,10 +73,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
 
   return (
     <>
-      <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
-      <TabNav tabs={TABS} modeLabel="ADMINISTRATOR" />
-      <div className="container">{children}</div>
-      <AppFooter />
+      <SidebarNav tabs={TABS} modeLabel="ADMINISTRATOR" />
+      <div className="app-shell-with-sidebar">
+        <TopBar identity={identity} strategies={strategies} engineStats={engineStats} />
+        <div className="container">{children}</div>
+        <AppFooter />
+      </div>
     </>
   );
 }

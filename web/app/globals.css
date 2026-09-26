@@ -19,6 +19,8 @@
   --teal-dim: #0f2e2b;
   --border: var(--panel-border);
   --radius: 12px;
+  --sidebar-width: 64px;
+  --sidebar-width-expanded: 224px;
 }
 
 * {
@@ -514,20 +516,8 @@ select:focus {
   color: #1a0508;
 }
 
-/* ---------- tab nav ---------- */
-.tabnav {
-  border-bottom: 1px solid var(--panel-border);
-  background: rgba(255, 255, 255, 0.01);
-}
-.tabnav-inner {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 0 20px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow-x: auto;
-}
+/* ---------- tab-style link (still used by in-page tab switchers, e.g.
+   Mt5ConnectionModal's "Connection Setup" / "How This Works") ---------- */
 .tab-link {
   display: flex;
   align-items: center;
@@ -547,15 +537,91 @@ select:focus {
   color: var(--fg);
   border-bottom-color: var(--accent-blue);
 }
-.tabnav-right {
-  margin-left: auto;
+
+/* ---------- sidebar nav: collapsed icon rail, expands on hover ---------- */
+.app-shell-with-sidebar {
+  padding-left: var(--sidebar-width);
+}
+
+.sidebar-nav {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--sidebar-width);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  background: rgba(10, 13, 20, 0.92);
+  backdrop-filter: blur(6px);
+  border-right: 1px solid var(--panel-border);
+  overflow: hidden;
+  transition: width 0.16s ease;
+}
+.sidebar-nav:hover {
+  width: var(--sidebar-width-expanded);
+}
+
+.sidebar-nav-links {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sidebar-link {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 12px;
+  gap: 14px;
+  padding: 11px 20px;
   color: var(--muted);
-  padding: 10px 0;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
+  border-left: 3px solid transparent;
+}
+.sidebar-link:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+}
+.sidebar-link.active {
+  color: var(--fg);
+  border-left-color: var(--accent-blue);
+  background: rgba(34, 211, 238, 0.07);
+}
+
+.sidebar-link-icon {
+  flex: none;
+  width: 20px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.sidebar-link-label {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.sidebar-nav:hover .sidebar-link-label {
+  opacity: 1;
+}
+
+.sidebar-nav-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--panel-border);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-nav,
+  .sidebar-link-label {
+    transition: none;
+  }
 }
 
 /* ---------- stat cards ---------- */
@@ -1183,6 +1249,24 @@ select:focus {
   border: 2px solid rgba(34, 211, 238, 0.25);
   border-top-color: var(--accent);
   animation: authSpin 0.7s linear infinite;
+}
+
+/* Generic small inline spinner - any in-progress async action (MT5
+   connect/disconnect, etc.), not just the auth alert above. */
+.spinner {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: currentColor;
+  animation: authSpin 0.7s linear infinite;
+  vertical-align: -2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.4s;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
