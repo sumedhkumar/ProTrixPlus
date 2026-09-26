@@ -15,7 +15,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -241,10 +241,13 @@ def connect_my_mt5_with_credentials(
 
 @router.delete("/me/mt5-connection")
 def disconnect_my_mt5_connection(
-    db: Session = Depends(get_db), claims: Claims = Depends(current_claims)
-) -> Response:
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
     try:
-        mt5_connection.disconnect_my_connection(db, claims.subject)
+        return mt5_connection.disconnect_my_connection(
+            db, claims.subject, metaapi_token=settings.metaapi_token.get_secret_value()
+        )
     except mt5_connection.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -160,14 +160,26 @@ def start_self_service_link(
         raise MetaApiNotConfiguredError("MetaApi is not configured on this deployment")
 
     if not conn.metaapi_account_id:
-        account = metaapi_client.create_account(
+        found_id = metaapi_client.find_account_id(
             token=metaapi_token,
-            name=f"protrixplus-{user_id}",
+            login=conn.login,
             server=conn.broker_server,
-            region=conn.metaapi_region or default_region,
-            magic=0,
+            prefer_name=f"protrixplus-{user_id}",
         )
-        conn.metaapi_account_id = str(account["id"])
+        if found_id:
+            # Found an account soft-disconnected (undeployed) earlier - wake
+            # it back up. Safe no-op if it was already deployed.
+            metaapi_client.deploy_account(token=metaapi_token, account_id=found_id)
+            conn.metaapi_account_id = found_id
+        else:
+            account = metaapi_client.create_account(
+                token=metaapi_token,
+                name=f"protrixplus-{user_id}",
+                server=conn.broker_server,
+                region=conn.metaapi_region or default_region,
+                magic=0,
+            )
+            conn.metaapi_account_id = str(account["id"])
         conn.metaapi_region = conn.metaapi_region or default_region
         session.commit()
         session.refresh(conn)
@@ -201,16 +213,28 @@ def connect_with_credentials(
         raise MetaApiNotConfiguredError("MetaApi is not configured on this deployment")
 
     if not conn.metaapi_account_id:
-        account = metaapi_client.create_account(
+        found_id = metaapi_client.find_account_id(
             token=metaapi_token,
-            name=f"protrixplus-{user_id}",
-            server=conn.broker_server,
-            region=conn.metaapi_region or default_region,
-            magic=0,
             login=conn.login,
-            password=password,
+            server=conn.broker_server,
+            prefer_name=f"protrixplus-{user_id}",
         )
-        conn.metaapi_account_id = str(account["id"])
+        if found_id:
+            # Found an account soft-disconnected (undeployed) earlier - wake
+            # it back up. Safe no-op if it was already deployed.
+            metaapi_client.deploy_account(token=metaapi_token, account_id=found_id)
+            conn.metaapi_account_id = found_id
+        else:
+            account = metaapi_client.create_account(
+                token=metaapi_token,
+                name=f"protrixplus-{user_id}",
+                server=conn.broker_server,
+                region=conn.metaapi_region or default_region,
+                magic=0,
+                login=conn.login,
+                password=password,
+            )
+            conn.metaapi_account_id = str(account["id"])
         conn.metaapi_region = conn.metaapi_region or default_region
         session.commit()
         session.refresh(conn)
@@ -218,12 +242,56 @@ def connect_with_credentials(
     return check_connection(session, user_id, metaapi_token=metaapi_token)
 
 
-def disconnect_my_connection(session: Session, user_id: str) -> None:
+def disconnect_my_connection(
+    session: Session, user_id: str, *, metaapi_token: str = ""
+) -> dict[str, Any]:
+    """A "soft disconnect": detaching locally used to be the whole story,
+    leaving the real MetaApi account (a separately-billed resource) running
+    forever with nothing in our own database still pointing at it - the
+    same kind of orphan this session found and cleaned up by hand. Now
+    best-effort *undeploys* it on MetaApi too - stops the running cloud
+    trading terminal (what's actually billed for ongoing use) without
+    deleting the account itself, so reconnecting the same broker login
+    later (via find_account_id + deploy_account) redeploys this exact
+    account for free instead of provisioning - and re-billing for - a new
+    one. Skips the undeploy if another user's connection still references
+    the exact same account id (possible since connect_with_credentials/
+    start_self_service_link reuse an existing account for a shared broker
+    login - undeploying it out from under a still-active different user
+    would be a real regression, not a cleanup). A remote failure never
+    blocks the local disconnect - the user must always be able to detach on
+    our side regardless of MetaApi's state - it's just reported back
+    instead of silently swallowed.
+    """
     conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
     if conn is None:
         raise NotFoundError("no MT5 connection configured yet")
+
+    metaapi_account_id = conn.metaapi_account_id
+    metaapi_undeployed = False
+    metaapi_error: str | None = None
+
+    if metaapi_account_id and metaapi_token:
+        shared_with_another_user = session.scalar(
+            select(Mt5Connection).where(
+                Mt5Connection.metaapi_account_id == metaapi_account_id,
+                Mt5Connection.user_id != uuid.UUID(user_id),
+            )
+        )
+        if shared_with_another_user is not None:
+            metaapi_error = (
+                "not undeployed on MetaApi - this account is still used by another connection"
+            )
+        else:
+            try:
+                metaapi_client.undeploy_account(token=metaapi_token, account_id=metaapi_account_id)
+                metaapi_undeployed = True
+            except metaapi_client.MetaApiError as exc:
+                metaapi_error = str(exc)
+
     session.delete(conn)
     session.commit()
+    return {"metaapi_account_undeployed": metaapi_undeployed, "metaapi_error": metaapi_error}
 
 
 def get_my_live_balance(session: Session, user_id: str, *, metaapi_token: str) -> dict[str, Any]:

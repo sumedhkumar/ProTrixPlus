@@ -105,7 +105,7 @@ def test_mt5_connection_disconnect_removes_it(client: TestClient, client_token: 
         headers=_auth(client_token),
     )
     del_r = client.delete("/api/v1/me/mt5-connection", headers=_auth(client_token))
-    assert del_r.status_code == 204
+    assert del_r.status_code == 200
     assert client.get("/api/v1/me/mt5-connection", headers=_auth(client_token)).json() is None
 
 

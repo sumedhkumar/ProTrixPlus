@@ -93,6 +93,7 @@ def test_connect_sends_real_credentials_to_metaapi_and_never_stores_the_password
         )
         return {"id": "creds-account-1"}
 
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
     monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
     monkeypatch.setattr(
         metaapi_client,
@@ -119,6 +120,53 @@ def test_connect_sends_real_credentials_to_metaapi_and_never_stores_the_password
     assert conn["metaapi_account_id"] == "creds-account-1"
 
 
+def test_connect_reuses_an_account_metaapi_already_has_for_this_login(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real, verified-live bug: two different local users who happened to
+    share the same real broker login each got their own separate (double-
+    billed) MetaApi account for it, because the old code only checked
+    *this connection row*, never MetaApi's own account list, before
+    creating. find_account_id now checks that list first."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "555444"},
+        headers=_auth(client_token),
+    )
+
+    def fail_if_called(**kwargs):  # noqa: ARG001
+        raise AssertionError("create_account must not be called when an account already exists")
+
+    monkeypatch.setattr(
+        metaapi_client,
+        "find_account_id",
+        lambda **kwargs: "already-existing-account-id",  # noqa: ARG005
+    )
+    monkeypatch.setattr(metaapi_client, "create_account", fail_if_called)
+    monkeypatch.setattr(metaapi_client, "deploy_account", lambda **kwargs: None)  # noqa: ARG005
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_status",
+        lambda **kwargs: {"state": "DEPLOYED", "connectionStatus": "CONNECTED"},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_information",
+        lambda **kwargs: {"balance": 500},  # noqa: ARG005
+    )
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "whatever"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 200
+    assert r.json()["metaapi_account_id"] == "already-existing-account-id"
+
+
 def test_connect_reuses_existing_account_instead_of_recreating(
     client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -137,6 +185,7 @@ def test_connect_reuses_existing_account_instead_of_recreating(
         create_calls["count"] += 1
         return {"id": "only-once-creds-id"}
 
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
     monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
     monkeypatch.setattr(
         metaapi_client,
