@@ -85,7 +85,11 @@ def test_disconnect_undeploys_the_metaapi_account_when_solely_owned(
         "create_configuration_link",
         lambda **kwargs: "https://x",  # noqa: ARG005
     )
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
 
     undeployed = {"account_id": None}
 
@@ -171,7 +175,11 @@ def test_disconnect_succeeds_locally_even_if_metaapi_undeploy_fails(
         "create_configuration_link",
         lambda **kwargs: "https://x",  # noqa: ARG005
     )
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
 
     def failing_undeploy(**kwargs):  # noqa: ARG001
         raise metaapi_client.MetaApiError("MetaApi returned 503 for POST .../undeploy")
@@ -208,7 +216,11 @@ def test_reconnect_after_soft_disconnect_redeploys_instead_of_recreating(
         "create_configuration_link",
         lambda **kwargs: "https://x",  # noqa: ARG005
     )
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
     monkeypatch.setattr(metaapi_client, "undeploy_account", lambda **kwargs: None)  # noqa: ARG005
     client.delete("/api/v1/me/mt5-connection", headers=_auth(client_token))
 

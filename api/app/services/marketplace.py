@@ -515,6 +515,10 @@ def self_subscribe(session: Session, *, user_id: str, strategy_id: str) -> dict[
         raise NotFoundError(f"strategy {strategy_id} not found")
     if not strategy.is_active:
         raise ValidationError("this strategy isn't published yet")
+    if not user.mt5_setup_fee_paid:
+        raise ValidationError(
+            "pay the one-time MT5 account setup fee before subscribing to a strategy"
+        )
 
     existing = session.scalar(
         select(StrategyAssignment).where(
@@ -522,6 +526,16 @@ def self_subscribe(session: Session, *, user_id: str, strategy_id: str) -> dict[
         )
     )
     if existing is not None:
+        if existing.payment_status == PaymentStatus.REVOKED.value:
+            # A revoked assignment must behave as "not subscribed" - reset the
+            # same row (the (user_id, strategy_id) unique constraint rules out
+            # a second row anyway) back into a fresh subscription request,
+            # rather than handing back the stale revoked state untouched.
+            existing.status = AssignmentStatus.PENDING_APPROVAL.value
+            existing.payment_status = PaymentStatus.GRANTED.value
+            existing.purchased_at = datetime.now(UTC)
+            session.commit()
+            session.refresh(existing)
         return _assignment_dict(existing, strategy)
 
     assignment = StrategyAssignment(

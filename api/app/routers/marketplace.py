@@ -15,7 +15,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -147,6 +147,19 @@ class SetMt5ConnectionRequest(BaseModel):
     login: str
 
 
+@router.post("/me/mt5-setup-fee/pay")
+def pay_my_mt5_setup_fee(
+    db: Session = Depends(get_db), claims: Claims = Depends(current_claims)
+) -> dict[str, Any]:
+    """Demo-only payment: covers the real cost of provisioning a MetaApi
+    account, one time per user (not per strategy) - required before
+    self_subscribe will accept any strategy request."""
+    try:
+        return mt5_connection.pay_mt5_setup_fee(db, claims.subject)
+    except mt5_connection.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.get("/me/mt5-connection")
 def get_my_mt5_connection(
     db: Session = Depends(get_db), claims: Claims = Depends(current_claims)
@@ -192,6 +205,7 @@ def check_my_mt5_connection(
 
 @router.post("/me/mt5-connection/metaapi-link")
 def start_my_metaapi_link(
+    confirm_charge: bool = Body(False, embed=True),
     db: Session = Depends(get_db),
     claims: Claims = Depends(current_claims),
     settings: Settings = Depends(get_settings),
@@ -205,6 +219,34 @@ def start_my_metaapi_link(
             claims.subject,
             metaapi_token=settings.metaapi_token.get_secret_value(),
             default_region=settings.metaapi_default_region,
+            confirm_charge=confirm_charge,
+        )
+    except mt5_connection.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except mt5_connection.MetaApiNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
+    except mt5_connection.ChargeConfirmationRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except metaapi_client.MetaApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+
+@router.post("/me/mt5-connection/would-create-new-account")
+def would_my_mt5_connect_create_new_account(
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    settings: Settings = Depends(get_settings),
+) -> dict[str, Any]:
+    """Read-only preview for the client-facing charge warning: does the
+    upcoming Connect call reuse an existing MetaApi account, or provision a
+    brand new, separately-billed one? Called right before the client
+    confirms, so the double-confirmation dialog only appears when it's
+    actually true."""
+    try:
+        return mt5_connection.would_create_new_account(
+            db, claims.subject, metaapi_token=settings.metaapi_token.get_secret_value()
         )
     except mt5_connection.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
@@ -218,6 +260,7 @@ def start_my_metaapi_link(
 
 class ConnectMt5WithCredentialsRequest(BaseModel):
     password: str = Field(min_length=1)
+    confirm_charge: bool = False
 
 
 @router.post("/me/mt5-connection/connect")
@@ -237,9 +280,12 @@ def connect_my_mt5_with_credentials(
             metaapi_token=settings.metaapi_token.get_secret_value(),
             default_region=settings.metaapi_default_region,
             password=body.password,
+            confirm_charge=body.confirm_charge,
         )
     except mt5_connection.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except mt5_connection.ChargeConfirmationRequiredError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     except mt5_connection.MetaApiNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)

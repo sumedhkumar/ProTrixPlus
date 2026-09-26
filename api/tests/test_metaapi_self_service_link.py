@@ -46,8 +46,14 @@ def test_link_requires_a_broker_server_set_first(client: TestClient, client_toke
 
 
 def test_link_unavailable_when_metaapi_not_configured(
-    client: TestClient, client_token: str
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Force this explicitly rather than relying on the ambient env being
+    # unset - a real token loaded from ../infra/.env previously made this
+    # "not configured" path run for real against MetaApi, provisioning real,
+    # billed, orphaned accounts nothing in the DB ever referenced again.
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "")
+    get_settings.cache_clear()
     client.put(
         "/api/v1/me/mt5-connection",
         json={"broker_server": "MetaQuotes-Demo", "login": "123"},
@@ -88,7 +94,11 @@ def test_link_creates_a_passwordless_account_and_returns_the_real_link(
     monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
     monkeypatch.setattr(metaapi_client, "create_configuration_link", fake_create_configuration_link)
 
-    r = client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    r = client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
     assert r.status_code == 200
     body = r.json()
     assert body["configuration_link"] == (
@@ -100,6 +110,32 @@ def test_link_creates_a_passwordless_account_and_returns_the_real_link(
     conn = client.get("/api/v1/me/mt5-connection", headers=_auth(client_token)).json()
     assert conn["metaapi_account_id"] == "new-account-id-123"
     assert conn["status"] == "PENDING"
+
+
+def test_link_requires_confirm_charge_before_creating_a_new_account(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Provisioning a brand new account is real money - never silent, and
+    never bypassable just because some future button forgets to check
+    would_create_new_account first. The server itself refuses without an
+    explicit confirm_charge=true."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "123"},
+        headers=_auth(client_token),
+    )
+
+    def fail_if_called(**kwargs):  # noqa: ARG001
+        raise AssertionError("create_account must not be called without confirm_charge")
+
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
+    monkeypatch.setattr(metaapi_client, "create_account", fail_if_called)
+
+    r = client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    assert r.status_code == 409
 
 
 def test_link_reuses_the_existing_account_instead_of_creating_a_second_one(
@@ -134,7 +170,11 @@ def test_link_reuses_the_existing_account_instead_of_creating_a_second_one(
     monkeypatch.setattr(metaapi_client, "create_account", fake_create_account)
     monkeypatch.setattr(metaapi_client, "create_configuration_link", fake_create_configuration_link)
 
-    first = client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    first = client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
     second = client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
 
     assert first.json()["metaapi_account_id"] == "only-once-id"
@@ -174,7 +214,11 @@ def test_link_asks_find_account_id_to_prefer_this_users_own_named_account(
         lambda **kwargs: "https://x",  # noqa: ARG005
     )
 
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
     assert seen["prefer_name"] == f"protrixplus-{client_user.id}"
 
 
@@ -238,7 +282,11 @@ def test_check_connection_real_status_flips_to_connected(
         "create_configuration_link",
         lambda **kwargs: "https://app.metaapi.cloud/x",  # noqa: ARG005
     )
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
 
     # Client hasn't finished yet.
     monkeypatch.setattr(
@@ -296,7 +344,11 @@ def test_check_connection_surfaces_a_degraded_trading_api_without_flipping_statu
         "create_configuration_link",
         lambda **kwargs: "https://app.metaapi.cloud/x",  # noqa: ARG005
     )
-    client.post("/api/v1/me/mt5-connection/metaapi-link", headers=_auth(client_token))
+    client.post(
+        "/api/v1/me/mt5-connection/metaapi-link",
+        json={"confirm_charge": True},
+        headers=_auth(client_token),
+    )
 
     monkeypatch.setattr(
         metaapi_client,

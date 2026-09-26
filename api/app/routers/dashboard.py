@@ -30,6 +30,7 @@ def me(db: Session = Depends(get_db), claims: Claims = Depends(current_claims)) 
         "issued_at": claims.issued_at.isoformat(),
         "expires_at": claims.expires_at.isoformat(),
         "must_change_password": user.must_change_password if user else False,
+        "mt5_setup_fee_paid": user.mt5_setup_fee_paid if user else False,
         "phone": user.phone if user else None,
         "subscription": (
             subscriptions.subscription_status(user, datetime.now(UTC)) if user else None

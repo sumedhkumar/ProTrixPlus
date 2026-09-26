@@ -179,6 +179,12 @@ class User(Base):
     subscription_package: Mapped[str | None] = mapped_column(String(16))
     subscription_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     subscription_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # One-time, account-wide (not per-strategy) fee covering the real cost of
+    # provisioning this user's MetaApi account - gates self_subscribe until
+    # paid. Demo-only for now (marketplace.pay_mt5_setup_fee just flips this,
+    # no real payment processor wired in), same false-shape as
+    # PaymentSubmission's other manual-review flows until one exists.
+    mt5_setup_fee_paid: Mapped[bool] = mapped_column(nullable=False, default=False)
     created_at: Mapped[datetime] = _created_at()
 
     assignments: Mapped[list[StrategyAssignment]] = relationship(back_populates="user")

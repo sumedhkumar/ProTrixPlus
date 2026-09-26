@@ -84,12 +84,19 @@ def test_balance_unavailable_when_connection_exists_but_metaapi_not_attached(
 
 
 def test_balance_unavailable_when_metaapi_token_not_configured(
-    client: TestClient, admin_token, client_token: str
+    client: TestClient, admin_token, client_token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Admin token fixture not used for auth here, just to create a strategy-
     free path - the point is: metaapi_account_id is attached, but this
-    deployment has no PROTRIX_METAAPI_TOKEN set (the default test env), so
-    it must say so honestly rather than attempt (and fail) a real call."""
+    deployment has no PROTRIX_METAAPI_TOKEN set, so it must say so honestly
+    rather than attempt (and fail) a real call. Force this explicitly rather
+    than relying on the ambient env being unset - a real token loaded from
+    ../infra/.env (the actual live deployment's credential) previously made
+    this test's "not configured" path execute for real against MetaApi,
+    provisioning real, billed, orphaned accounts nothing in the DB ever
+    referenced again."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "")
+    get_settings.cache_clear()
     set_r = client.put(
         "/api/v1/me/mt5-connection",
         json={"broker_server": "MetaQuotes-Demo", "login": "123"},

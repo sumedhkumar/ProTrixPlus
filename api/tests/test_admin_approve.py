@@ -26,8 +26,13 @@ def admin_token(db, identity):
 
 @pytest.fixture
 def client_user(db):
+    # mt5_setup_fee_paid=True: this file tests admin-approval, not the
+    # payment gate in front of self_subscribe.
     user = User(
-        email="approve-client@example.test", display_name="Client", role=UserRole.USER.value
+        email="approve-client@example.test",
+        display_name="Client",
+        role=UserRole.USER.value,
+        mt5_setup_fee_paid=True,
     )
     db.add(user)
     db.commit()

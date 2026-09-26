@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from protrix_contracts.db.models import Mt5Connection, Mt5ConnectionStatus, User
+from protrix_contracts.db.models import AuditEvent, Mt5Connection, Mt5ConnectionStatus, User
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,51 @@ class NotFoundError(Exception):
 
 class MetaApiNotConfiguredError(Exception):
     pass
+
+
+class ChargeConfirmationRequiredError(Exception):
+    """Raised instead of silently provisioning a new, separately-billed
+    MetaApi account - the caller must retry with ``confirm_charge=True``.
+    A real incident: test runs (and, before this, nothing at all) could
+    trigger real account creation with no explicit "yes, charge this"
+    step anywhere - this is enforced here, server-side, so no caller
+    (a UI button today, a direct API call, or some future button that
+    forgets to check first) can ever create a billable account by
+    accident. The client-facing preview (would_create_new_account) exists
+    so a UI can warn *before* hitting this wall, but this is the real gate."""
+
+    pass
+
+
+def pay_mt5_setup_fee(session: Session, user_id: str) -> dict[str, Any]:
+    """Demo-only "payment" for the one-time MT5 account setup fee -
+    self_subscribe requires this before a client can request any strategy.
+    No real payment processor is wired in yet; this just flips the flag and
+    records an audit event, the same honest-placeholder shape as every
+    other manual-review payment path in this codebase. Idempotent: paying
+    twice is a no-op, not an error, so a page refresh/double-click never
+    breaks anything - but the caller can check the returned
+    ``already_paid`` to avoid double-charging a real processor later.
+    """
+    user = session.get(User, uuid.UUID(user_id))
+    if user is None:
+        raise NotFoundError(f"user {user_id} not found")
+
+    already_paid = user.mt5_setup_fee_paid
+    if not already_paid:
+        user.mt5_setup_fee_paid = True
+        session.add(
+            AuditEvent(
+                event_type="user.mt5_setup_fee_paid",
+                entity_type="user",
+                entity_id=str(user.id),
+                actor=user_id,
+                data={"demo_payment": True},
+            )
+        )
+        session.commit()
+
+    return {"mt5_setup_fee_paid": True, "already_paid": already_paid}
 
 
 def _dict(c: Mt5Connection) -> dict[str, Any]:
@@ -143,7 +188,12 @@ def check_connection(session: Session, user_id: str, *, metaapi_token: str = "")
 
 
 def start_self_service_link(
-    session: Session, user_id: str, *, metaapi_token: str, default_region: str
+    session: Session,
+    user_id: str,
+    *,
+    metaapi_token: str,
+    default_region: str,
+    confirm_charge: bool = False,
 ) -> dict[str, Any]:
     """Real, self-service MetaApi onboarding: the client never types their
     MT5 password into ProTrixPlus, or hands it to an admin. If this
@@ -152,6 +202,12 @@ def start_self_service_link(
     credentials later, directly to MetaApi). Then generate a fresh
     configuration link either way - safe to call again if the first link
     expired or the client wants to re-enter their password.
+
+    Provisioning a brand new account is real money - never done silently.
+    If no existing account can be reused, this raises
+    ChargeConfirmationRequiredError unless the caller already passed
+    ``confirm_charge=True`` (see would_create_new_account for the preview a
+    UI should call first to decide whether to even ask).
     """
     conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
     if conn is None:
@@ -172,6 +228,11 @@ def start_self_service_link(
             metaapi_client.deploy_account(token=metaapi_token, account_id=found_id)
             conn.metaapi_account_id = found_id
         else:
+            if not confirm_charge:
+                raise ChargeConfirmationRequiredError(
+                    "this provisions a new, separately-billed MetaApi account - "
+                    "retry with confirm_charge=true to proceed"
+                )
             account = metaapi_client.create_account(
                 token=metaapi_token,
                 name=f"protrixplus-{user_id}",
@@ -194,8 +255,44 @@ def start_self_service_link(
     return {"configuration_link": link, "metaapi_account_id": conn.metaapi_account_id}
 
 
+def would_create_new_account(
+    session: Session, user_id: str, *, metaapi_token: str
+) -> dict[str, Any]:
+    """Read-only preview of what connect_with_credentials is about to do -
+    so the client can be warned specifically when a NEW, separately-billed
+    MetaApi account is about to be provisioned, and not bothered with that
+    warning when reconnecting/reusing an already-provisioned one (e.g. a
+    soft-disconnected account being redeployed, or a broker login someone
+    else at ProTrixPlus already has an account for). Mirrors
+    connect_with_credentials' own dedup check exactly, without actually
+    creating or deploying anything.
+    """
+    conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
+    if conn is None or not conn.login or not conn.broker_server:
+        raise NotFoundError("set your broker server and MT5 login first")
+    if not metaapi_token:
+        raise MetaApiNotConfiguredError("MetaApi is not configured on this deployment")
+
+    if conn.metaapi_account_id:
+        return {"will_create_new_account": False}
+
+    found_id = metaapi_client.find_account_id(
+        token=metaapi_token,
+        login=conn.login,
+        server=conn.broker_server,
+        prefer_name=f"protrixplus-{user_id}",
+    )
+    return {"will_create_new_account": found_id is None}
+
+
 def connect_with_credentials(
-    session: Session, user_id: str, *, metaapi_token: str, default_region: str, password: str
+    session: Session,
+    user_id: str,
+    *,
+    metaapi_token: str,
+    default_region: str,
+    password: str,
+    confirm_charge: bool = False,
 ) -> dict[str, Any]:
     """Direct-entry MT5 onboarding: the client types their real MT5 password
     into ProTrixPlus, and it's passed straight through to MetaApi in the
@@ -203,6 +300,12 @@ def connect_with_credentials(
     column exists on Mt5Connection), never logged (httpx's default request
     logging only records method/URL/status, never the request body), and
     never held longer than this one function call.
+
+    Provisioning a brand new account is real money - never done silently.
+    If no existing account can be reused, this raises
+    ChargeConfirmationRequiredError unless the caller already passed
+    ``confirm_charge=True`` (see would_create_new_account for the preview a
+    UI should call first to decide whether to even ask).
     """
     conn = session.scalar(select(Mt5Connection).where(Mt5Connection.user_id == uuid.UUID(user_id)))
     if conn is None:
@@ -225,6 +328,11 @@ def connect_with_credentials(
             metaapi_client.deploy_account(token=metaapi_token, account_id=found_id)
             conn.metaapi_account_id = found_id
         else:
+            if not confirm_charge:
+                raise ChargeConfirmationRequiredError(
+                    "this provisions a new, separately-billed MetaApi account - "
+                    "retry with confirm_charge=true to proceed"
+                )
             account = metaapi_client.create_account(
                 token=metaapi_token,
                 name=f"protrixplus-{user_id}",

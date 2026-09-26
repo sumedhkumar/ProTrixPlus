@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from typing import Any
 from unittest.mock import MagicMock
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from protrix_contracts.db import metadata
@@ -111,6 +113,51 @@ def db(db_engine) -> Iterator[Session]:
         session.close()
         txn.rollback()
         connection.close()
+
+
+# A real incident: a test asserting the "MetaApi not configured" 503 path
+# never mocked anything, trusting the ambient env to have no
+# PROTRIX_METAAPI_TOKEN set. When a real token loaded instead (from
+# ../infra/.env, config.py's env_file fallback to the live deployment's own
+# credential), that test's request ran for real against MetaApi's live
+# provisioning API and created a real, billed, orphaned account - twice, on
+# two separate runs. Every real success-path test already mocks at the
+# metaapi_client function level (never touching httpx), so blocking outbound
+# calls to MetaApi's real hosts here costs nothing and closes this off for
+# good, regardless of what any test does or doesn't set.
+_METAAPI_HOST_FRAGMENT = "agiliumtrade"
+
+
+def _blocked_metaapi_call(method: str, url: str, *args: Any, **kwargs: Any) -> None:
+    raise RuntimeError(
+        f"Test attempted a REAL network call ({method} {url}) to MetaApi. "
+        "Tests must mock app.services.metaapi_client functions, never let a "
+        "real call through - see the incident note above this fixture."
+    )
+
+
+def _extract_url(name: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> str:
+    # httpx.request(method, url, ...) - url is the 2nd positional arg;
+    # httpx.get/post/put/delete(url, ...) - url is the 1st.
+    url_index = 1 if name == "request" else 0
+    if len(args) > url_index:
+        return str(args[url_index])
+    return str(kwargs.get("url", ""))
+
+
+@pytest.fixture(autouse=True)
+def _block_real_metaapi_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("request", "get", "post", "put", "delete"):
+        real_fn = getattr(httpx, name)
+
+        def _guarded(
+            *args: Any, _real_fn: Any = real_fn, _name: str = name, **kwargs: Any
+        ) -> httpx.Response:
+            if _METAAPI_HOST_FRAGMENT in _extract_url(_name, args, kwargs):
+                _blocked_metaapi_call(_name.upper(), _extract_url(_name, args, kwargs))
+            return _real_fn(*args, **kwargs)  # type: ignore[no-any-return]
+
+        monkeypatch.setattr(httpx, name, _guarded)
 
 
 @pytest.fixture(autouse=True)

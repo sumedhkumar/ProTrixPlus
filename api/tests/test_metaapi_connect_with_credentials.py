@@ -50,8 +50,14 @@ def test_connect_requires_broker_and_login_set_first(client: TestClient, client_
 
 
 def test_connect_unavailable_when_metaapi_not_configured(
-    client: TestClient, client_token: str
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Force this explicitly rather than relying on the ambient env being
+    # unset - a real token loaded from ../infra/.env previously made this
+    # "not configured" path run for real against MetaApi, provisioning real,
+    # billed, orphaned accounts nothing in the DB ever referenced again.
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "")
+    get_settings.cache_clear()
     client.put(
         "/api/v1/me/mt5-connection",
         json={"broker_server": "MetaQuotes-Demo", "login": "123"},
@@ -103,7 +109,7 @@ def test_connect_sends_real_credentials_to_metaapi_and_never_stores_the_password
 
     r = client.post(
         "/api/v1/me/mt5-connection/connect",
-        json={"password": "my-real-mt5-password"},
+        json={"password": "my-real-mt5-password", "confirm_charge": True},
         headers=_auth(client_token),
     )
     assert r.status_code == 200
@@ -118,6 +124,36 @@ def test_connect_sends_real_credentials_to_metaapi_and_never_stores_the_password
     conn = client.get("/api/v1/me/mt5-connection", headers=_auth(client_token)).json()
     assert "password" not in conn
     assert conn["metaapi_account_id"] == "creds-account-1"
+
+
+def test_connect_requires_confirm_charge_before_creating_a_new_account(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Provisioning a brand new account is real money - never silent, and
+    never bypassable just because some future button forgets to check
+    would_create_new_account first. The server itself refuses without an
+    explicit confirm_charge=true."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "111222"},
+        headers=_auth(client_token),
+    )
+
+    def fail_if_called(**kwargs):  # noqa: ARG001
+        raise AssertionError("create_account must not be called without confirm_charge")
+
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
+    monkeypatch.setattr(metaapi_client, "create_account", fail_if_called)
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "pw"},
+        headers=_auth(client_token),
+    )
+    assert r.status_code == 409
 
 
 def test_connect_reuses_an_account_metaapi_already_has_for_this_login(
@@ -200,7 +236,7 @@ def test_connect_reuses_existing_account_instead_of_recreating(
 
     first = client.post(
         "/api/v1/me/mt5-connection/connect",
-        json={"password": "pw1"},
+        json={"password": "pw1", "confirm_charge": True},
         headers=_auth(client_token),
     )
     second = client.post(
@@ -212,3 +248,116 @@ def test_connect_reuses_existing_account_instead_of_recreating(
     assert second.json()["metaapi_account_id"] == "only-once-creds-id"
     assert create_calls["count"] == 1
     assert second.json()["status"] == "CONNECTED"
+
+
+def test_would_create_new_account_requires_broker_and_login_set_first(
+    client: TestClient, client_token: str
+) -> None:
+    r = client.post(
+        "/api/v1/me/mt5-connection/would-create-new-account", headers=_auth(client_token)
+    )
+    assert r.status_code == 404
+
+
+def test_would_create_new_account_unavailable_when_metaapi_not_configured(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "")
+    get_settings.cache_clear()
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "123"},
+        headers=_auth(client_token),
+    )
+    r = client.post(
+        "/api/v1/me/mt5-connection/would-create-new-account", headers=_auth(client_token)
+    )
+    assert r.status_code == 503
+
+
+def test_would_create_new_account_true_when_no_existing_account_found(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "999888"},
+        headers=_auth(client_token),
+    )
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/would-create-new-account", headers=_auth(client_token)
+    )
+    assert r.status_code == 200
+    assert r.json() == {"will_create_new_account": True}
+
+
+def test_would_create_new_account_false_when_metaapi_already_has_a_matching_account(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "999888"},
+        headers=_auth(client_token),
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "find_account_id",
+        lambda **kwargs: "already-there-id",  # noqa: ARG005
+    )
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/would-create-new-account", headers=_auth(client_token)
+    )
+    assert r.status_code == 200
+    assert r.json() == {"will_create_new_account": False}
+
+
+def test_would_create_new_account_false_when_connection_already_has_one_attached(
+    client: TestClient, client_token: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Once a connection already has metaapi_account_id set, connect_with_
+    credentials skips the create/find step entirely - so the preview must
+    say False without even calling find_account_id."""
+    monkeypatch.setenv("PROTRIX_METAAPI_TOKEN", "test-token")
+    get_settings.cache_clear()
+    client.put(
+        "/api/v1/me/mt5-connection",
+        json={"broker_server": "MetaQuotes-Demo", "login": "777666"},
+        headers=_auth(client_token),
+    )
+
+    # First connect call: no account attached yet, so find_account_id
+    # legitimately runs (and finds nothing) before create_account attaches one.
+    monkeypatch.setattr(metaapi_client, "find_account_id", lambda **kwargs: None)  # noqa: ARG005
+    monkeypatch.setattr(metaapi_client, "create_account", lambda **kwargs: {"id": "attach-id"})  # noqa: ARG005
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_status",
+        lambda **kwargs: {"state": "DEPLOYED", "connectionStatus": "CONNECTED"},  # noqa: ARG005
+    )
+    monkeypatch.setattr(
+        metaapi_client,
+        "get_account_information",
+        lambda **kwargs: {"balance": 500},  # noqa: ARG005
+    )
+    client.post(
+        "/api/v1/me/mt5-connection/connect",
+        json={"password": "pw", "confirm_charge": True},
+        headers=_auth(client_token),
+    )
+
+    def fail_if_called(**kwargs):  # noqa: ARG001
+        raise AssertionError("find_account_id must not be called - account already attached")
+
+    monkeypatch.setattr(metaapi_client, "find_account_id", fail_if_called)
+
+    r = client.post(
+        "/api/v1/me/mt5-connection/would-create-new-account", headers=_auth(client_token)
+    )
+    assert r.status_code == 200
+    assert r.json() == {"will_create_new_account": False}
