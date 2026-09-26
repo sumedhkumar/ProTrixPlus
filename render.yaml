@@ -19,6 +19,16 @@ envVarGroups:
     envVars:
       - key: PROTRIX_WEBHOOK_SHARED_SECRET
         generateValue: true
+      # The real TradingView-facing endpoint (/webhook/tradingview/{token})
+      # checks THIS secret, not PROTRIX_WEBHOOK_SHARED_SECRET above (that one
+      # is only for the older header-based simulator route). Its default is
+      # an empty string, which makes the auth check reject every request
+      # with 401 - this was previously unset here, so no TradingView alert
+      # could ever reach a Render deploy. Read the generated value from the
+      # Render dashboard and put it in the TradingView alert's Webhook URL as
+      # https://<api-host>/webhook/tradingview/<this-value>.
+      - key: PROTRIX_TRADINGVIEW_WEBHOOK_SECRET
+        generateValue: true
 
 services:
   - type: web
