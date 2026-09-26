@@ -90,8 +90,21 @@ async def _ingest(
 
 
 def _normalize_tradingview_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Normalize TradingView strategy placeholders to the frozen wire contract."""
+    """Normalize TradingView strategy placeholders to the frozen wire contract.
+
+    ``order_id`` is accepted as a convenience alias, not part of the frozen
+    envelope (which has ``additionalProperties: false``): TradingView's alert
+    editor sometimes mis-lints a message where two ``{{...}}`` placeholders
+    are concatenated in the same string (e.g.
+    ``"{{strategy.order.id}}-{{timenow}}"``), so the recommended alert
+    template sends ``order_id`` and ``event_time_utc`` as separate
+    single-placeholder fields and we combine them into ``signal_id`` here -
+    always popped before the payload reaches validate_envelope.
+    """
     normalized = dict(payload)
+    order_id = normalized.pop("order_id", None)
+    if order_id is not None and "signal_id" not in normalized:
+        normalized["signal_id"] = f"{order_id}-{normalized.get('event_time_utc', '')}"
     action = normalized.get("action")
     if isinstance(action, str) and action.lower() in {"buy", "sell"}:
         normalized["action"] = action.upper()
