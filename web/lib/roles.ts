@@ -76,7 +76,7 @@ export function canRead(
 }
 
 export function homePathForRole(role: Role | null | undefined): string {
-  return canAccessAdmin(role) ? "/admin" : "/dashboard/marketplace";
+  return canAccessAdmin(role) ? "/admin" : "/dashboard";
 }
 
 /** Where to send someone who asked for `requestedPath` but is not allowed. */

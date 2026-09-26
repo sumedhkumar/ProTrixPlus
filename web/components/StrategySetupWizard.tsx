@@ -256,9 +256,14 @@ export function StrategySetupWizard({
               />
             ) : null}
             {connected ? (
-              <p style={{ color: "var(--ok)", fontSize: 13 }}>
-                ✅ Connection successful — {mt5Connection?.broker_server} ({mt5Connection?.login})
-              </p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <p style={{ color: "var(--ok)", fontSize: 13, margin: 0 }}>
+                  ✅ Connection successful — {mt5Connection?.broker_server} ({mt5Connection?.login})
+                </p>
+                <button type="button" className="secondary" onClick={() => setShowMt5Modal(true)}>
+                  Manage / Disconnect
+                </button>
+              </div>
             ) : (
               <>
                 <p style={{ color: "var(--muted)", fontSize: 12.5, marginBottom: 10 }}>

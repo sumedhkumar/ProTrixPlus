@@ -14,11 +14,13 @@ export function StrategyMarketplaceCard({
   assignment,
   mt5Connection,
   liveBalance,
+  mt5SetupFeePaid,
 }: {
   strategy: StrategyView;
   assignment: MyAssignmentView | undefined;
   mt5Connection: Mt5ConnectionView | null;
   liveBalance: LiveBalance;
+  mt5SetupFeePaid: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -215,6 +217,21 @@ export function StrategyMarketplaceCard({
           >
             {busy ? "Saving..." : `⟳ Update Sizing (${selectedMultiplier}X)`}
           </button>
+        </>
+      ) : !mt5SetupFeePaid ? (
+        <>
+          <button
+            type="button"
+            className="secondary"
+            disabled
+            title="Pay the one-time MT5 account setup fee above first"
+            style={{ width: "100%", opacity: 0.7, cursor: "not-allowed" }}
+          >
+            🔒 Pay setup fee to subscribe
+          </button>
+          <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8 }}>
+            Activate your account above (one-time setup fee) before subscribing to any strategy.
+          </p>
         </>
       ) : (
         <>

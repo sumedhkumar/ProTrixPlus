@@ -13,6 +13,72 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Second, explicit confirmation before the account-creation call actually
+ * fires - the checkbox above is easy to click without reading; this forces
+ * a distinct, deliberate "yes" so a client can't create a chargeable
+ * MetaApi account by accident. Mirrors StrategySetupWizard's
+ * RiskConfirmModal pattern used for the "go live" confirmation. */
+function ChargeConfirmModal({
+  busy,
+  onConfirm,
+  onCancel,
+}: {
+  busy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(4,6,10,0.8)",
+        zIndex: 200,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+      onClick={onCancel}
+    >
+      <div
+        className="card"
+        style={{ maxWidth: 460, width: "100%", padding: 24, border: "1px solid var(--warn)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>
+          💳 Confirm: this creates a chargeable account
+        </div>
+        <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 16 }}>
+          Connecting this broker login provisions a real MetaApi trading account. This is a real,
+          separately-billed resource - not a free/demo simulation. Only continue if you intend to
+          connect this account now.
+        </p>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={onConfirm}
+            disabled={busy}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            {busy ? (
+              <>
+                <span className="spinner" /> Connecting...
+              </>
+            ) : (
+              "Yes, create this chargeable account"
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Deploying/redeploying an account genuinely takes a few seconds beyond the
 // initial connect call returning (MetaApi still has to finish the real
 // broker handshake) - poll instead of trusting the very first status.
@@ -37,6 +103,8 @@ export function Mt5ConnectionModal({
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showChargeConfirm, setShowChargeConfirm] = useState(false);
+  const [checkingNewAccount, setCheckingNewAccount] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [checking, setChecking] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
@@ -98,16 +166,44 @@ export function Mt5ConnectionModal({
     router.refresh();
   }
 
-  async function connectWithCredentials(e: React.FormEvent) {
+  async function requestConnect(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+    setCheckingNewAccount(true);
+    const res = await fetch("/api/me/mt5-connection/would-create-new-account", {
+      method: "POST",
+    });
+    setCheckingNewAccount(false);
+    if (res.ok) {
+      const body = (await res.json()) as { will_create_new_account: boolean };
+      if (body.will_create_new_account) {
+        setShowChargeConfirm(true);
+        return;
+      }
+      // Reusing an already-provisioned account - not a new charge, so skip
+      // the confirmation dialog and connect straight away.
+      await connectWithCredentials();
+      return;
+    }
+    // Couldn't tell in advance (e.g. MetaApi unreachable) - fall through to
+    // the real connect call, which will surface its own honest error.
+    await connectWithCredentials();
+  }
+
+  async function connectWithCredentials() {
     setConnecting(true);
     setError(null);
     const res = await fetch("/api/me/mt5-connection/connect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password }),
+      // By the time this fires, requestConnect has already established
+      // (via would-create-new-account) that either no new account is being
+      // created, or the client explicitly confirmed the charge dialog -
+      // the server enforces this same rule independently either way.
+      body: JSON.stringify({ password, confirm_charge: true }),
     });
     setConnecting(false);
+    setShowChargeConfirm(false);
     setPassword("");
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { detail?: string };
@@ -131,6 +227,7 @@ export function Mt5ConnectionModal({
   }
 
   return (
+    <>
     <div
       style={{
         position: "fixed",
@@ -279,7 +376,7 @@ export function Mt5ConnectionModal({
                   Save your broker server and login above first.
                 </p>
               ) : (
-                <form onSubmit={(e) => void connectWithCredentials(e)}>
+                <form onSubmit={requestConnect}>
                   <label style={{ fontSize: 12, color: "var(--muted)", display: "block", marginBottom: 6 }}>
                     MT5 password (master/trading password, not investor/read-only)
                   </label>
@@ -299,10 +396,14 @@ export function Mt5ConnectionModal({
                     <button
                       type="submit"
                       className="btn-primary"
-                      disabled={connecting || pollingStatus !== null}
+                      disabled={checkingNewAccount || connecting || pollingStatus !== null}
                       style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
                     >
-                      {connecting ? (
+                      {checkingNewAccount ? (
+                        <>
+                          <span className="spinner" /> Checking account...
+                        </>
+                      ) : connecting ? (
                         <>
                           <span className="spinner" /> Connecting...
                         </>
@@ -372,5 +473,13 @@ export function Mt5ConnectionModal({
         )}
       </div>
     </div>
+    {showChargeConfirm ? (
+      <ChargeConfirmModal
+        busy={connecting}
+        onConfirm={() => void connectWithCredentials()}
+        onCancel={() => setShowChargeConfirm(false)}
+      />
+    ) : null}
+    </>
   );
 }

@@ -28,11 +28,11 @@ describe("roles", () => {
   it("routes each role to its home", () => {
     expect(homePathForRole("SUPER_ADMIN")).toBe("/admin");
     expect(homePathForRole("OPERATIONS_ADMIN")).toBe("/admin");
-    expect(homePathForRole("USER")).toBe("/dashboard/marketplace");
+    expect(homePathForRole("USER")).toBe("/dashboard");
   });
 
   it("bounces a forbidden USER to their own dashboard, anon to login", () => {
-    expect(redirectForForbidden("USER")).toBe("/dashboard/marketplace");
+    expect(redirectForForbidden("USER")).toBe("/dashboard");
     expect(redirectForForbidden(null)).toBe("/login");
   });
 

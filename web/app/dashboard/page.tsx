@@ -34,11 +34,7 @@ export default async function TradingTerminalPage() {
       </p>
 
       <div className="stat-grid">
-        <Mt5BalanceCard
-          connection={mt5Connection}
-          displayName={identity.display_name}
-          liveBalance={liveBalance}
-        />
+        <Mt5BalanceCard connection={mt5Connection} liveBalance={liveBalance} />
 
         <div className="card">
           <div className="card-head">
@@ -63,9 +59,6 @@ export default async function TradingTerminalPage() {
         <div className="card">
           <div className="card-head">
             <span className="card-title">Active Subscriptions</span>
-            <a href="/dashboard/marketplace" className="card-link">
-              Browse
-            </a>
           </div>
           <div className="stat-value">{myAssignments.length} Strategies</div>
           <div className="stat-sub-cols">
@@ -112,6 +105,7 @@ export default async function TradingTerminalPage() {
         myAssignments={myAssignments}
         mt5Connection={mt5Connection}
         liveBalance={liveBalance}
+        mt5SetupFeePaid={identity.mt5_setup_fee_paid}
       />
     </>
   );

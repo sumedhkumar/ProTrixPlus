@@ -12,7 +12,6 @@ import { getToken } from "@/lib/auth";
 const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 
 const TABS: TabDef[] = [
-  { href: "/dashboard/marketplace", label: "Strategy Marketplace", icon: "▤" },
   { href: "/dashboard", label: "My Trading Terminal", icon: "◧" },
   { href: "/dashboard/history", label: "Execution History", icon: "◷" },
   { href: "/dashboard/settlement", label: "EOD Settlement Ledger", icon: "$" },

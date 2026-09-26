@@ -70,6 +70,7 @@ export interface Identity {
   issued_at: string;
   expires_at: string;
   must_change_password: boolean;
+  mt5_setup_fee_paid: boolean;
   phone: string | null;
   subscription: SubscriptionStatusView | null;
 }

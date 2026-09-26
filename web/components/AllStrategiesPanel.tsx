@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import type { LiveBalance, Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
@@ -7,23 +8,48 @@ import type { LiveBalance, Mt5ConnectionView, MyAssignmentView, StrategyView } f
 import { StrategyMarketplaceCard } from "./StrategyMarketplaceCard";
 
 const INITIAL_VISIBLE = 6;
+const MT5_SETUP_FEE_DISPLAY = "10.00";
 
 export function AllStrategiesPanel({
   strategies,
   myAssignments,
   mt5Connection,
   liveBalance,
+  mt5SetupFeePaid,
 }: {
   strategies: StrategyView[];
   myAssignments: MyAssignmentView[];
   mt5Connection: Mt5ConnectionView | null;
   liveBalance: LiveBalance;
+  mt5SetupFeePaid: boolean;
 }) {
+  const router = useRouter();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
+  async function payMt5SetupFee() {
+    setPaying(true);
+    setPayError(null);
+    const res = await fetch("/api/me/mt5-setup-fee/pay", { method: "POST" });
+    setPaying(false);
+    if (!res.ok) {
+      setPayError(`payment failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
+
+  // A REVOKED assignment isn't deleted (it stays for history/audit), but it
+  // must behave as "not subscribed" here - otherwise a client who was
+  // unsubscribed still sees "Update Sizing"/"Complete Setup" instead of a
+  // fresh Subscribe button, as if nothing happened.
   const byStrategyId = useMemo(
-    () => new Map(myAssignments.map((a) => [a.strategy_id, a])),
+    () =>
+      new Map(
+        myAssignments.filter((a) => a.payment_status !== "REVOKED").map((a) => [a.strategy_id, a]),
+      ),
     [myAssignments],
   );
 
@@ -76,6 +102,43 @@ export function AllStrategiesPanel({
         </div>
       </div>
 
+      {!mt5SetupFeePaid ? (
+        <div
+          className="card"
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 14,
+            flexWrap: "wrap",
+            padding: "14px 16px",
+            marginBottom: 16,
+            background: "rgba(246, 166, 35, 0.06)",
+            border: "1px solid rgba(246, 166, 35, 0.3)",
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>
+              🔒 Activate your account to subscribe
+            </div>
+            <p style={{ color: "var(--muted)", fontSize: 12, marginTop: 4, marginBottom: 0 }}>
+              A one-time ${MT5_SETUP_FEE_DISPLAY} setup fee covers the real cost of provisioning
+              your MetaApi trading account - pay once, then subscribe to any strategy.
+              {payError ? <span style={{ color: "var(--bad)" }}> {payError}</span> : null}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-primary"
+            disabled={paying}
+            onClick={() => void payMt5SetupFee()}
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {paying ? "Processing..." : `💳 Pay $${MT5_SETUP_FEE_DISPLAY} (Demo)`}
+          </button>
+        </div>
+      ) : null}
+
       {strategies.length === 0 ? (
         <div className="empty">No strategies published yet.</div>
       ) : filtered.length === 0 ? (
@@ -96,6 +159,7 @@ export function AllStrategiesPanel({
                 assignment={byStrategyId.get(s.id)}
                 mt5Connection={mt5Connection}
                 liveBalance={liveBalance}
+                mt5SetupFeePaid={mt5SetupFeePaid}
               />
             ))}
           </div>
