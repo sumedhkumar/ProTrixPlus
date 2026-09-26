@@ -6,11 +6,9 @@ import { BrandMark } from "@/components/BrandMark";
 import { FaqSection } from "./FaqSection";
 import { LandingHero } from "./LandingHero";
 import { PricingSection } from "./PricingSection";
-import { ResultsShowcase } from "./ResultsShowcase";
 import { SecuritySection } from "./SecuritySection";
 
 const NAV_LINKS: [string, string][] = [
-  ["#results", "Results"],
   ["#security", "Security"],
   ["#pricing", "Pricing"],
   ["#faq", "FAQ"],
@@ -45,7 +43,6 @@ export function LandingPage() {
       </header>
 
       <LandingHero />
-      <ResultsShowcase />
       <SecuritySection />
       <PricingSection />
       <FaqSection />

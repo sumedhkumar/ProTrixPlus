@@ -1,5 +1,3 @@
-const TICKS = ["AI Regime (demo)", "Idempotent", "Kelly Exposure (demo)", "EOD Settlement (demo)"];
-
 export function AppFooter() {
   return (
     <footer
@@ -16,12 +14,8 @@ export function AppFooter() {
         fontSize: 11.5,
       }}
     >
-      <span>ProTrixPlus AI • TradingView to MetaTrader 5 Multi-User Autonomous Execution</span>
-      <span style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
-        {TICKS.map((t) => (
-          <span key={t}>{t}</span>
-        ))}
-      </span>
+      <span>ProTrixPlus • TradingView to MetaTrader 5 Multi-User Trading Automation</span>
+      <span>Idempotent signal ingestion</span>
     </footer>
   );
 }

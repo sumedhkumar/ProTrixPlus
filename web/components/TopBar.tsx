@@ -26,6 +26,7 @@ export function TopBar({
   const subscription = identity.subscription;
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   function closeModal() {
     setModalOpen(false);
@@ -54,10 +55,6 @@ export function TopBar({
         </div>
 
         <ExecutionEngineStatus stats={engineStats} onTestIngestion={() => setModalOpen(true)} />
-        <span className="pill" title="Demo indicator - no real AI/market-data integration exists yet">
-          <span className="dot green" />
-          AI Copilot: Online <span className="badge-pill badge-demo">DEMO</span>
-        </span>
         <SubscriptionCountdownPill subscription={subscription} />
 
         <div style={{ flex: 1 }} />
@@ -66,23 +63,63 @@ export function TopBar({
           ▲ Simulate TV Signal
         </button>
 
-        <div className="identity-chip">
-          <div className="avatar">{initials}</div>
-          <div className="identity-text">
-            <div className="name" data-testid="identity">
-              {identity.display_name}
+        <div style={{ position: "relative" }}>
+          <button
+            type="button"
+            className="identity-chip"
+            style={{ border: "1px solid var(--panel-border)", cursor: "pointer" }}
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <div className="avatar">{initials}</div>
+            <div className="identity-text">
+              <div className="name" data-testid="identity">
+                {identity.display_name}
+              </div>
+              <div className="role" data-testid="identity-role">
+                {ROLE_LABEL[identity.role]}
+              </div>
             </div>
-            <div className="role" data-testid="identity-role">
-              {ROLE_LABEL[identity.role]}
-            </div>
-          </div>
-          <span aria-hidden style={{ color: "var(--dim)", fontSize: 10 }}>
-            ▾
-          </span>
+            <span aria-hidden style={{ color: "var(--dim)", fontSize: 10 }}>
+              {menuOpen ? "▴" : "▾"}
+            </span>
+          </button>
+
+          {menuOpen ? (
+            <>
+              <div
+                style={{ position: "fixed", inset: 0, zIndex: 29 }}
+                onClick={() => setMenuOpen(false)}
+              />
+              <div
+                className="card"
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 8px)",
+                  right: 0,
+                  zIndex: 30,
+                  padding: 8,
+                  minWidth: 160,
+                }}
+              >
+                <a
+                  href="/logout"
+                  style={{
+                    display: "block",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    color: "var(--fg)",
+                    borderRadius: 6,
+                    padding: "8px 10px",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  ⏻ Sign out
+                </a>
+              </div>
+            </>
+          ) : null}
         </div>
-        <a href="/logout" style={{ fontSize: 12 }}>
-          Sign out
-        </a>
         </div>
       </header>
 

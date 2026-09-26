@@ -9,12 +9,10 @@ import { Mt5ConnectionModal } from "./Mt5ConnectionModal";
 export function Mt5BalanceCard({
   connection,
   displayName,
-  demoBalance,
   liveBalance,
 }: {
   connection: Mt5ConnectionView | null;
   displayName: string;
-  demoBalance: string;
   liveBalance: LiveBalance;
 }) {
   const [open, setOpen] = useState(false);
@@ -36,11 +34,8 @@ export function Mt5BalanceCard({
             </span>
           </div>
         ) : (
-          <div className="stat-value">
-            ${demoBalance}{" "}
-            <span className="badge-pill badge-demo" title={liveBalance.reason}>
-              DEMO
-            </span>
+          <div style={{ color: "var(--muted)", fontSize: 13.5 }}>
+            {liveBalance.reason ?? "Balance not available - connect a live MT5 account."}
           </div>
         )}
         {connection ? (

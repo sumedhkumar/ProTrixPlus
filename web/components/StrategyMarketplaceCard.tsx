@@ -10,37 +10,6 @@ import { StrategySetupWizard } from "./StrategySetupWizard";
 const MULTIPLIERS = [1, 2, 3, 5, 10, 20] as const;
 type Multiplier = (typeof MULTIPLIERS)[number];
 
-// Deterministic (per-strategy-id, not random-per-render) illustrative stats.
-// No real trade-performance analytics or AI regime model exist yet - always
-// shown with a DEMO tag, same convention as AiCopilotPanel's Market Radar.
-const REGIMES = [
-  "Trend Expansion",
-  "Mean-Reversion",
-  "Volatility Squeeze",
-  "Momentum Breakout",
-  "Range Compression",
-  "Institutional Accumulation",
-];
-
-function demoStats(seed: string): {
-  winRate: string;
-  profitFactor: string;
-  trades: number;
-  regimeFitness: number;
-  regime: string;
-  recommendedMultiplier: 1 | 2 | 3;
-} {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) & 0xffffffff;
-  const winRate = (55 + (Math.abs(hash) % 20)).toFixed(1);
-  const profitFactor = (1.3 + (Math.abs(hash >> 4) % 90) / 100).toFixed(2);
-  const trades = 90 + (Math.abs(hash >> 8) % 150);
-  const regimeFitness = 80 + (Math.abs(hash >> 12) % 18);
-  const regime = REGIMES[Math.abs(hash >> 16) % REGIMES.length] ?? "Trend Expansion";
-  const recommendedMultiplier = ((Math.abs(hash >> 20) % 3) + 1) as 1 | 2 | 3;
-  return { winRate, profitFactor, trades, regimeFitness, regime, recommendedMultiplier };
-}
-
 export function StrategyMarketplaceCard({
   strategy,
   assignment,
@@ -128,7 +97,6 @@ export function StrategyMarketplaceCard({
     router.refresh();
   }
 
-  const stats = demoStats(strategy.id);
   const sizingChanged = assignment ? selectedMultiplier !== Number(assignment.multiplier) : false;
 
   return (
@@ -149,50 +117,6 @@ export function StrategyMarketplaceCard({
       {strategy.description ? (
         <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{strategy.description}</p>
       ) : null}
-
-      <div className="stat-sub-cols" style={{ marginBottom: 14 }}>
-        <div>
-          <div>{stats.winRate}%</div>
-          <div>Win rate (demo)</div>
-        </div>
-        <div>
-          <div>{stats.profitFactor}</div>
-          <div>Profit factor (demo)</div>
-        </div>
-        <div>
-          <div>{stats.trades}</div>
-          <div>Track record (demo)</div>
-        </div>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
-          background: "rgba(124, 108, 246, 0.08)",
-          border: "1px solid var(--panel-border)",
-          borderRadius: 10,
-          padding: "10px 14px",
-          marginBottom: 14,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 12.5, fontWeight: 700 }}>
-            ✨ AI Regime Fitness: {stats.regimeFitness}% ({stats.regime})
-            <span className="badge-pill badge-demo" style={{ marginLeft: 6 }}>
-              DEMO
-            </span>
-          </div>
-          <div style={{ fontSize: 11.5, color: "var(--muted)" }}>
-            Kelly Criterion: {stats.recommendedMultiplier}X optimal multiplier recommended - illustrative, not a real model.
-          </div>
-        </div>
-        <span className="mult-badge" style={{ whiteSpace: "nowrap" }}>
-          {stats.recommendedMultiplier}X OPTIMAL
-        </span>
-      </div>
 
       <div className="stat-sub" style={{ marginBottom: 10 }}>
         <span>Exposure multiplier</span>

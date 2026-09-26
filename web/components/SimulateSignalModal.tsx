@@ -10,16 +10,6 @@ function randomAlertId(symbol: string): string {
   return `TV_ALT_${symbol || "SIG"}_${Math.floor(Math.random() * 90000 + 10000)}`;
 }
 
-// Static illustrative risk-check figures - there is no real market-data feed
-// or AI model behind these. Always shown with a DEMO badge, never wired to
-// the actual dispatch decision.
-const PRE_FLIGHT = {
-  slippage: "+0.35 pips",
-  liquidity: "94 / 100",
-  news: "Clear (Low Risk)",
-  conviction: "92% Optimal",
-};
-
 export function SimulateSignalModal({
   strategies,
   onClose,
@@ -241,31 +231,6 @@ export function SimulateSignalModal({
               <span style={{ fontSize: 11, color: "var(--dim)" }}>
                 Managed server-side - the real secret is never sent to your browser.
               </span>
-            </div>
-
-            <div className="card" style={{ marginTop: 16, padding: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <span className="card-title">ProTrix AI Pre-Flight Guard</span>
-                <span className="badge-pill badge-demo">DEMO</span>
-              </div>
-              <div className="stat-sub-cols">
-                <div>
-                  <div style={{ color: "var(--ok)" }}>{PRE_FLIGHT.slippage}</div>
-                  <div>Predicted slippage</div>
-                </div>
-                <div>
-                  <div>{PRE_FLIGHT.liquidity}</div>
-                  <div>Liquidity depth</div>
-                </div>
-                <div>
-                  <div>{PRE_FLIGHT.news}</div>
-                  <div>High-impact news</div>
-                </div>
-                <div>
-                  <div>{PRE_FLIGHT.conviction}</div>
-                  <div>AI conviction</div>
-                </div>
-              </div>
             </div>
 
             <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
