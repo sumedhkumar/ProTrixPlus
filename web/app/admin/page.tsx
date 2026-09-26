@@ -2,24 +2,26 @@ import { AdminStrategyCatalog } from "@/components/AdminStrategyCatalog";
 import {
   apiFetch,
   type AlertView,
+  type Identity,
   type StrategyView,
   type UnmappedSignalStrategyView,
 } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { canWrite } from "@/lib/roles";
 
 export const dynamic = "force-dynamic";
 
 export default async function StrategyLifecyclePage() {
   const token = getToken()!;
-  const strategies = await apiFetch<StrategyView[]>(
-    "/api/v1/admin/strategies?include_archived=true",
-    token,
-  );
-  const alerts = await apiFetch<AlertView[]>("/api/v1/admin/alerts", token).catch(() => []);
-  const unmappedSignals = await apiFetch<UnmappedSignalStrategyView[]>(
-    "/api/v1/admin/strategies/unmapped-signals",
-    token,
-  ).catch(() => []);
+  const [strategies, alerts, identity, unmappedSignals] = await Promise.all([
+    apiFetch<StrategyView[]>("/api/v1/admin/strategies?include_archived=true", token),
+    apiFetch<AlertView[]>("/api/v1/admin/alerts", token).catch(() => []),
+    apiFetch<Identity>("/api/v1/me", token),
+    apiFetch<UnmappedSignalStrategyView[]>(
+      "/api/v1/admin/strategies/unmapped-signals",
+      token,
+    ).catch(() => []),
+  ]);
 
   return (
     <>
@@ -32,6 +34,7 @@ export default async function StrategyLifecyclePage() {
         strategies={strategies}
         alerts={alerts}
         unmappedSignals={unmappedSignals}
+        canEdit={canWrite(identity.role, "strategy", identity.extra_roles)}
       />
     </>
   );

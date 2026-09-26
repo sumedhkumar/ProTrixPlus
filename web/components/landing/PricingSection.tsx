@@ -6,6 +6,8 @@ const PACKAGES: {
   price: string;
   period: string;
   featured?: boolean;
+  priceTBD?: boolean;
+  note?: string;
   href: string;
   cta: string;
   features: string[];
@@ -15,7 +17,7 @@ const PACKAGES: {
     label: "7-Day Free Trial",
     price: "Free",
     period: "for 7 days",
-    featured: true,
+    note: "New users only",
     href: "/trial",
     cta: "Start Free Trial",
     features: ["Full dashboard access", "Live execution tracking", "No card required"],
@@ -25,6 +27,7 @@ const PACKAGES: {
     label: "3-Month Plan",
     price: "$0",
     period: "/ 3 months",
+    priceTBD: true,
     href: "/subscribe?package=PLAN_3M",
     cta: "Choose 3-Month",
     features: ["Everything in trial", "3 months of platform access", "Priority support"],
@@ -34,6 +37,8 @@ const PACKAGES: {
     label: "6-Month Plan",
     price: "$0",
     period: "/ 6 months",
+    featured: true,
+    priceTBD: true,
     href: "/subscribe?package=PLAN_6M",
     cta: "Choose 6-Month",
     features: ["Everything in trial", "6 months of platform access", "Priority support"],
@@ -43,6 +48,7 @@ const PACKAGES: {
     label: "1-Year Plan",
     price: "$0",
     period: "/ 12 months",
+    priceTBD: true,
     href: "/subscribe?package=PLAN_12M",
     cta: "Choose 1-Year",
     features: ["Everything in trial", "12 months of platform access", "Priority support"],
@@ -75,7 +81,8 @@ export function PricingSection() {
             <div className="pricing-card-price">
               {p.price} <span className="period">{p.period}</span>
             </div>
-            {!p.featured ? <span className="badge-pill badge-neutral">Pricing coming soon</span> : null}
+            {p.priceTBD ? <span className="badge-pill badge-neutral">Pricing coming soon</span> : null}
+            {p.note ? <span className="badge-pill badge-neutral">{p.note}</span> : null}
             <ul>
               {p.features.map((f) => (
                 <li key={f}>{f}</li>
@@ -83,20 +90,13 @@ export function PricingSection() {
             </ul>
             <Link
               href={p.href}
-              className={p.featured ? "btn-primary" : undefined}
+              className="btn-primary"
               style={{
                 textAlign: "center",
                 padding: "10px 16px",
                 borderRadius: 8,
                 fontWeight: 700,
                 fontSize: 13,
-                ...(p.featured
-                  ? {}
-                  : {
-                      border: "1px solid var(--border)",
-                      color: "var(--fg)",
-                      textDecoration: "none",
-                    }),
               }}
             >
               {p.cta}

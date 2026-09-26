@@ -74,6 +74,7 @@ def submit_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     _notify_admin(sender, submission)
+    _notify_customer(sender, submission)
     return {"id": str(submission.id), "status": submission.status}
 
 
@@ -98,10 +99,21 @@ def submit_my_payment(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     _notify_admin(sender, submission)
+    _notify_customer(sender, submission)
     return {"id": str(submission.id), "status": submission.status}
 
 
 def _notify_admin(sender: EmailSender, submission: PaymentSubmission) -> None:
     notifications.send_payment_admin_notification(
         sender, admin_to=get_settings().admin_notify_email, submission=submission
+    )
+
+
+def _notify_customer(sender: EmailSender, submission: PaymentSubmission) -> None:
+    notifications.send_payment_submitted_email(
+        sender,
+        to=submission.email,
+        display_name=submission.name,
+        package=submission.package,
+        utr_reference=submission.utr_reference,
     )

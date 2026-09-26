@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiErrorDetail, apiFetch, ApiError } from "@/lib/api";
 import { TOKEN_COOKIE } from "@/lib/auth";
+import type { Role } from "@/lib/roles";
 
 interface AuthResponse {
   access_token: string;
-  role: "USER" | "SUPER_ADMIN";
+  role: Role;
   display_name: string;
   subject: string;
   must_change_password: boolean;
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;
-    return NextResponse.json({ error: `${mode} failed`, detail: String(err) }, { status });
+    return NextResponse.json({ error: `${mode} failed`, detail: apiErrorDetail(err) }, { status });
   }
 
   const res = NextResponse.json({

@@ -21,6 +21,8 @@ from protrix_contracts.lifecycle import ExecutionState
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.services import admin_accounts
+
 
 def list_signals(session: Session, *, limit: int = 100) -> list[dict[str, Any]]:
     intent_counts: dict[uuid.UUID, int] = {
@@ -135,13 +137,19 @@ def list_users(session: Session) -> list[dict[str, Any]]:
         ).all()
     }
     users = session.scalars(select(User).order_by(User.created_at)).all()
+    extra_roles = admin_accounts.extra_roles_by_user(session, [u.id for u in users])
     return [
         {
             "id": str(u.id),
             "email": u.email,
             "display_name": u.display_name,
             "role": u.role,
+            "extra_roles": extra_roles.get(u.id, []),
             "is_active": u.is_active,
+            # False while an admin-invited account hasn't completed its first
+            # password setup yet (see app/services/admin_accounts.py) - the
+            # Admin Team UI shows this as "Invited" rather than "Active".
+            "has_password": u.password_hash is not None,
             "assignment_count": int(assign_counts.get(u.id, 0)),
         }
         for u in users
@@ -156,9 +164,12 @@ def ops_summary(session: Session) -> dict[str, Any]:
     at the data layer (signal_id uniqueness, ExecutionState.UNKNOWN); this is
     what surfaces them for an admin instead of only being visible in logs.
     """
-    execution_state_counts = dict(
-        session.execute(select(Execution.state, func.count()).group_by(Execution.state)).all()
-    )
+    execution_state_counts: dict[str, int] = {
+        state: count
+        for state, count in session.execute(
+            select(Execution.state, func.count()).group_by(Execution.state)
+        )
+    }
     total_signals = session.scalar(select(func.count()).select_from(Signal)) or 0
     total_executions = session.scalar(select(func.count()).select_from(Execution)) or 0
     revoked_assignments = (

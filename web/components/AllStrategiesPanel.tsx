@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 
-import type { Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
+import type { LiveBalance, Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
 
 import { StrategyMarketplaceCard } from "./StrategyMarketplaceCard";
 
@@ -12,10 +12,12 @@ export function AllStrategiesPanel({
   strategies,
   myAssignments,
   mt5Connection,
+  liveBalance,
 }: {
   strategies: StrategyView[];
   myAssignments: MyAssignmentView[];
   mt5Connection: Mt5ConnectionView | null;
+  liveBalance: LiveBalance;
 }) {
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(false);
@@ -93,6 +95,7 @@ export function AllStrategiesPanel({
                 strategy={s}
                 assignment={byStrategyId.get(s.id)}
                 mt5Connection={mt5Connection}
+                liveBalance={liveBalance}
               />
             ))}
           </div>

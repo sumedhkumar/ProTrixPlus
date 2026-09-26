@@ -98,15 +98,24 @@ def admin_approve_payment_submission(
     result: dict[str, Any] = {"created_new_account": False, "temp_password": None}
 
     if submission.user_id is not None:
-        user = session.get(User, submission.user_id)
-        if user is None:
+        existing_user = session.get(User, submission.user_id)
+        if existing_user is None:
             raise NotFoundError(f"user {submission.user_id} not found")
+    else:
+        # Submission wasn't linked to an account at intake, but the email may
+        # already belong to one (e.g. a prior trial/Google signup) - treat
+        # that as a renewal instead of failing on the email unique constraint.
+        existing_user = session.scalar(select(User).where(User.email == submission.email.lower()))
+
+    if existing_user is not None:
+        user = existing_user
         start, end = subscriptions.compute_renewal_window(
             user.subscription_end, now, submission.package
         )
         user.subscription_package = submission.package
         user.subscription_start = start
         user.subscription_end = end
+        submission.user_id = user.id
     else:
         user, temp_password = subscriptions.create_user_with_temp_password(
             session,

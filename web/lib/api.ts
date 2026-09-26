@@ -1,10 +1,16 @@
 // Server-only module: only imported from Server Components and route handlers.
+import type { Role } from "@/lib/roles";
+
 const API_URL = process.env.PROTRIX_API_URL ?? "http://localhost:8000";
 
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The backend's own `detail` string, when its error body was JSON with
+     * one - safe to show a user. `message` stays the full diagnostic string
+     * (path/status/raw body) for server-side logs. */
+    readonly detail?: string,
   ) {
     super(message);
   }
@@ -25,9 +31,23 @@ export async function apiFetch<T>(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new ApiError(res.status, `${path} -> ${res.status} ${body.slice(0, 200)}`);
+    let detail: string | undefined;
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown };
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      // Not JSON - no user-safe detail to extract.
+    }
+    throw new ApiError(res.status, `${path} -> ${res.status} ${body.slice(0, 200)}`, detail);
   }
   return (await res.json()) as T;
+}
+
+/** Best-effort user-safe message for an error caught from `apiFetch`: the
+ * backend's own `detail` when available, else the full diagnostic string
+ * (only ever seen if the upstream response wasn't the usual JSON shape). */
+export function apiErrorDetail(err: unknown): string {
+  return err instanceof ApiError ? (err.detail ?? String(err)) : String(err);
 }
 
 export interface SubscriptionStatusView {
@@ -43,7 +63,8 @@ export interface SubscriptionStatusView {
 
 export interface Identity {
   subject: string;
-  role: "USER" | "SUPER_ADMIN";
+  role: Role;
+  extra_roles: Role[];
   display_name: string;
   email: string;
   issued_at: string;
@@ -120,7 +141,10 @@ export interface AdminUser {
   email: string;
   display_name: string;
   role: string;
+  extra_roles: string[];
   is_active: boolean;
+  /** False until an admin-invited account completes its first password setup. */
+  has_password: boolean;
   assignment_count: number;
 }
 
@@ -154,6 +178,7 @@ export interface StrategyView {
   is_archived: boolean;
   last_signal_at: string | null;
   signal_status: "connected" | "disconnected";
+  min_balance: string | null;
 }
 
 // "PENDING_APPROVAL" = client self-subscribed but an admin hasn't confirmed

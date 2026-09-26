@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiErrorDetail, apiFetch, ApiError } from "@/lib/api";
 
 /** POST /api/google-signup { credential } -> api POST /auth/signup-google
  * (Google-verified email, password-less - same temp-password email as
@@ -16,6 +16,6 @@ export async function POST(req: Request) {
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;
-    return NextResponse.json({ error: "signup failed", detail: String(err) }, { status });
+    return NextResponse.json({ error: "signup failed", detail: apiErrorDetail(err) }, { status });
   }
 }

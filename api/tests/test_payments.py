@@ -81,6 +81,26 @@ def test_anonymous_submission_notifies_admin(
     assert any("Payment review needed" in e["subject"] for e in mock_email.sent)
 
 
+def test_anonymous_submission_notifies_customer(
+    client: TestClient, mock_email: MockEmailSender
+) -> None:
+    r = client.post(
+        "/api/v1/payments/submit",
+        json={
+            "name": "Jack",
+            "email": "jack3@example.test",
+            "phone": "+1-555-0207",
+            "package": "PLAN_3M",
+            "utr_reference": "UTR54321",
+        },
+    )
+    assert r.status_code == 201
+    assert any(
+        e["to"] == "jack3@example.test" and "payment received" in e["subject"].lower()
+        for e in mock_email.sent
+    )
+
+
 def test_submission_rejects_trial_package(client: TestClient) -> None:
     r = client.post(
         "/api/v1/payments/submit",
@@ -154,9 +174,13 @@ def test_admin_approve_anonymous_submission_creates_account_with_temp_password(
     assert approve.json()["status"] == "APPROVED"
 
     # a new account was created and got a welcome/temp-password email
-    welcome = [e for e in mock_email.sent if e["to"] == "liam@example.test"]
+    # (in addition to the "payment received" confirmation sent on submission)
+    welcome = [
+        e
+        for e in mock_email.sent
+        if e["to"] == "liam@example.test" and "payment confirmed" in e["subject"].lower()
+    ]
     assert len(welcome) == 1
-    assert "payment confirmed" in welcome[0]["subject"].lower()
 
     temp_password = welcome[0]["body_text"].split("Temporary password: ")[1].splitlines()[0]
     login = client.post(
@@ -164,6 +188,44 @@ def test_admin_approve_anonymous_submission_creates_account_with_temp_password(
     )
     assert login.status_code == 200
     assert login.json()["must_change_password"] is True
+
+
+def test_admin_approve_anonymous_submission_with_existing_email_renews_account(
+    client: TestClient, admin_token: str, db, existing_user, mock_email: MockEmailSender
+) -> None:
+    """Regression: an unauthenticated submission whose email already belongs
+    to an account (e.g. an earlier trial/Google signup) must renew that
+    account, not crash on the email unique constraint (500)."""
+    original_end = existing_user.subscription_end
+
+    submit = client.post(
+        "/api/v1/payments/submit",
+        json={
+            "name": "Renewing Client",
+            "email": existing_user.email,
+            "phone": "+1-555-0299",
+            "package": "PLAN_3M",
+            "utr_reference": "UTR-DUPE-EMAIL",
+        },
+    )
+    submission_id = submit.json()["id"]
+
+    approve = client.post(
+        f"/api/v1/admin/payment-submissions/{submission_id}/approve", headers=_auth(admin_token)
+    )
+    assert approve.status_code == 200
+    assert approve.json()["status"] == "APPROVED"
+    assert approve.json()["user_id"] == str(existing_user.id)
+
+    db.refresh(existing_user)
+    assert existing_user.subscription_end - original_end >= timedelta(days=89)
+
+    renewal_emails = [
+        e
+        for e in mock_email.sent
+        if e["to"] == existing_user.email and "renewed" in e["subject"].lower()
+    ]
+    assert len(renewal_emails) == 1
 
 
 def test_admin_approve_renewal_stacks_on_active_subscription(
@@ -195,9 +257,12 @@ def test_admin_approve_renewal_stacks_on_active_subscription(
 
     # a "subscription renewed" confirmation is sent, but never a temp
     # password - the account already has its own password
-    renewal_emails = [e for e in mock_email.sent if e["to"] == existing_user.email]
+    renewal_emails = [
+        e
+        for e in mock_email.sent
+        if e["to"] == existing_user.email and "renewed" in e["subject"].lower()
+    ]
     assert len(renewal_emails) == 1
-    assert "renewed" in renewal_emails[0]["subject"].lower()
     assert "Temporary password" not in renewal_emails[0]["body_text"]
 
 

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   canAccessAdmin,
+  canRead,
+  canWrite,
   homePathForRole,
   isRole,
   redirectForForbidden,
@@ -9,14 +11,23 @@ import {
 import { decodeClaims } from "../lib/claims";
 
 describe("roles", () => {
-  it("only SUPER_ADMIN can access admin", () => {
-    expect(canAccessAdmin("SUPER_ADMIN")).toBe(true);
+  it("any admin tier can access admin, USER cannot", () => {
+    for (const role of [
+      "SUPER_ADMIN",
+      "OPERATIONS_ADMIN",
+      "STRATEGY_ADMIN",
+      "FINANCE_ADMIN",
+      "AUDITOR",
+    ] as const) {
+      expect(canAccessAdmin(role)).toBe(true);
+    }
     expect(canAccessAdmin("USER")).toBe(false);
     expect(canAccessAdmin(null)).toBe(false);
   });
 
   it("routes each role to its home", () => {
     expect(homePathForRole("SUPER_ADMIN")).toBe("/admin");
+    expect(homePathForRole("OPERATIONS_ADMIN")).toBe("/admin");
     expect(homePathForRole("USER")).toBe("/dashboard/marketplace");
   });
 
@@ -27,7 +38,33 @@ describe("roles", () => {
 
   it("validates role strings", () => {
     expect(isRole("USER")).toBe(true);
+    expect(isRole("AUDITOR")).toBe(true);
     expect(isRole("root")).toBe(false);
+  });
+
+  it("gates writes to the role that owns each capability, plus SUPER_ADMIN", () => {
+    expect(canWrite("STRATEGY_ADMIN", "strategy")).toBe(true);
+    expect(canWrite("SUPER_ADMIN", "strategy")).toBe(true);
+    expect(canWrite("OPERATIONS_ADMIN", "strategy")).toBe(false);
+    expect(canWrite("FINANCE_ADMIN", "ops")).toBe(false);
+    expect(canWrite("AUDITOR", "finance")).toBe(false);
+  });
+
+  it("lets AUDITOR read every capability but write none", () => {
+    for (const capability of ["ops", "strategy", "finance"] as const) {
+      expect(canRead("AUDITOR", capability)).toBe(true);
+      expect(canWrite("AUDITOR", capability)).toBe(false);
+    }
+    expect(canRead("USER", "ops")).toBe(false);
+  });
+
+  it("also grants write/read from a multi-role admin's extra roles", () => {
+    // STRATEGY_ADMIN primary, FINANCE_ADMIN as an extra UserRoleGrant.
+    expect(canWrite("STRATEGY_ADMIN", "finance")).toBe(false);
+    expect(canWrite("STRATEGY_ADMIN", "finance", ["FINANCE_ADMIN"])).toBe(true);
+    expect(canRead("STRATEGY_ADMIN", "finance", ["FINANCE_ADMIN"])).toBe(true);
+    expect(canRead("STRATEGY_ADMIN", "ops", ["AUDITOR"])).toBe(true);
+    expect(canWrite("STRATEGY_ADMIN", "ops", ["AUDITOR"])).toBe(false);
   });
 });
 

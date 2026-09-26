@@ -56,6 +56,20 @@ def send_payment_admin_notification(
     sender.send(to=admin_to, subject=subject, body_text=body)
 
 
+def send_payment_submitted_email(
+    sender: EmailSender, *, to: str, display_name: str, package: str, utr_reference: str
+) -> None:
+    subject = f"ProTrixPlus - payment received for {_label(package)}"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"We've received your payment submission for the {_label(package)} "
+        f"(reference: {utr_reference}).\n\n"
+        "Our team will review it shortly and you'll get a confirmation email "
+        "once it's approved.\n\n- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)
+
+
 def send_payment_approved_new_account_email(
     sender: EmailSender, *, to: str, display_name: str, temp_password: str, package: str
 ) -> None:
@@ -105,5 +119,34 @@ def send_password_reset_email(sender: EmailSender, *, to: str, reset_url: str) -
         f"Reset it here (valid for 1 hour): {reset_url}\n\n"
         "If you didn't request this, you can safely ignore this email.\n\n"
         "- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)
+
+
+def send_admin_invite_email(
+    sender: EmailSender, *, to: str, display_name: str, invite_url: str, role_labels: list[str]
+) -> None:
+    roles = ", ".join(role_labels)
+    subject = "You've been invited to the ProTrixPlus admin team"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"You've been added to the ProTrixPlus admin panel with the following "
+        f"role(s): {roles}.\n\n"
+        f"Set your password here (valid for 7 days): {invite_url}\n\n"
+        "If you weren't expecting this, you can safely ignore this email.\n\n"
+        "- ProTrixPlus"
+    )
+    sender.send(to=to, subject=subject, body_text=body)
+
+
+def send_admin_roles_updated_email(
+    sender: EmailSender, *, to: str, display_name: str, role_labels: list[str]
+) -> None:
+    roles = ", ".join(role_labels)
+    subject = "Your ProTrixPlus admin roles were updated"
+    body = (
+        f"Hi {display_name},\n\n"
+        f"Your ProTrixPlus admin roles are now: {roles}.\n\n"
+        "Log in to the admin panel to see what's changed.\n\n- ProTrixPlus"
     )
     sender.send(to=to, subject=subject, body_text=body)

@@ -12,6 +12,10 @@ import { SubscriptionCountdownPill } from "./SubscriptionStatus";
 const ROLE_LABEL: Record<Identity["role"], string> = {
   USER: "Client Subscriber",
   SUPER_ADMIN: "System Admin",
+  OPERATIONS_ADMIN: "Operations Admin",
+  STRATEGY_ADMIN: "Strategy Admin",
+  FINANCE_ADMIN: "Finance Admin",
+  AUDITOR: "Auditor (read-only)",
 };
 
 export function TopBar({

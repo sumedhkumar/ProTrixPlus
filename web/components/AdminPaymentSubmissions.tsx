@@ -19,8 +19,11 @@ const STATUS_BADGE: Record<string, string> = {
 
 export function AdminPaymentSubmissions({
   submissions,
+  canReview,
 }: {
   submissions: PaymentSubmissionView[];
+  /** FINANCE_ADMIN/SUPER_ADMIN can approve/reject; everyone else (e.g. AUDITOR) sees read-only rows. */
+  canReview: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -104,7 +107,9 @@ export function AdminPaymentSubmissions({
                   </span>
                 </td>
                 <td>
-                  {s.status === "PENDING" ? (
+                  {s.status === "PENDING" && !canReview ? (
+                    <span style={{ color: "var(--dim)", fontSize: 12 }}>Read-only</span>
+                  ) : s.status === "PENDING" ? (
                     rejecting === s.id ? (
                       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                         <input

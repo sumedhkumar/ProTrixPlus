@@ -3,28 +3,29 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import type { Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
+import type { LiveBalance, Mt5ConnectionView, MyAssignmentView, StrategyView } from "@/lib/api";
 
+import { MultiplierSlider } from "./MultiplierSlider";
 import { StrategySetupWizard } from "./StrategySetupWizard";
-
-const MULTIPLIERS = [1, 2, 3, 5, 10, 20] as const;
-type Multiplier = (typeof MULTIPLIERS)[number];
+import { WarningBanner } from "./WarningBanner";
 
 export function StrategyMarketplaceCard({
   strategy,
   assignment,
   mt5Connection,
+  liveBalance,
 }: {
   strategy: StrategyView;
   assignment: MyAssignmentView | undefined;
   mt5Connection: Mt5ConnectionView | null;
+  liveBalance: LiveBalance;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
-  const [selectedMultiplier, setSelectedMultiplier] = useState<Multiplier>(
-    (Number(assignment?.multiplier ?? 1) as Multiplier) || 1,
+  const [selectedMultiplier, setSelectedMultiplier] = useState<number>(
+    Number(assignment?.multiplier ?? 1) || 1,
   );
   const [previewLot, setPreviewLot] = useState<string | null>(
     assignment ? assignment.effective_lot : null,
@@ -33,6 +34,16 @@ export function StrategyMarketplaceCard({
   const masterLot = assignment?.master_lot ?? strategy.base_lot;
   const multiplierMin = assignment?.multiplier_min ?? "1";
   const multiplierMax = assignment?.multiplier_max ?? "3";
+  // What actually gets used/saved - the slider itself now spans 1X-100X, but
+  // the backend still clamps to the admin-granted range per assignment
+  // (protrix_contracts.money.compute_lot), so the displayed equation must
+  // reflect that clamp too, not the raw slider value, or the math looks
+  // broken (e.g. "0.10L x 100X = 0.30 Lots").
+  const effectiveMultiplier = Math.min(
+    Number(multiplierMax),
+    Math.max(Number(multiplierMin), selectedMultiplier),
+  );
+  const multiplierCapped = effectiveMultiplier !== selectedMultiplier;
 
   useEffect(() => {
     if (!masterLot) {
@@ -98,6 +109,11 @@ export function StrategyMarketplaceCard({
   }
 
   const sizingChanged = assignment ? selectedMultiplier !== Number(assignment.multiplier) : false;
+  const belowMinBalance =
+    strategy.min_balance !== null &&
+    liveBalance.available &&
+    liveBalance.balance !== undefined &&
+    liveBalance.balance < Number(strategy.min_balance);
 
   return (
     <div className="card">
@@ -110,6 +126,14 @@ export function StrategyMarketplaceCard({
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         {strategy.symbol ? <span className="badge-pill badge-blue">{strategy.symbol}</span> : null}
         {strategy.timeframe ? <span className="badge-pill badge-neutral">{strategy.timeframe}</span> : null}
+        {strategy.min_balance ? (
+          <span
+            className={`badge-pill ${belowMinBalance ? "badge-warn" : "badge-neutral"}`}
+            title="Minimum MT5 account balance required for this strategy to work"
+          >
+            Min. balance: ${strategy.min_balance}
+          </span>
+        ) : null}
         <code>
           {strategy.strategy_key}@{strategy.strategy_version}
         </code>
@@ -117,33 +141,30 @@ export function StrategyMarketplaceCard({
       {strategy.description ? (
         <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>{strategy.description}</p>
       ) : null}
+      {belowMinBalance ? (
+        <WarningBanner
+          tone="bad"
+          title="Balance below minimum"
+          message={`Your connected MT5 account balance ($${liveBalance.balance?.toFixed(2)}) is below the $${strategy.min_balance} this strategy requires - fund your account before starting it.`}
+        />
+      ) : null}
 
       <div className="stat-sub" style={{ marginBottom: 10 }}>
         <span>Exposure multiplier</span>
         <span>Base lot: {masterLot ?? "—"}</span>
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        {MULTIPLIERS.map((m) => {
-          const active = selectedMultiplier === m;
-          const inBounds = m >= Number(multiplierMin) && m <= Number(multiplierMax);
-          return (
-            <button
-              key={m}
-              type="button"
-              className={active ? "btn-primary" : "secondary"}
-              disabled={!inBounds || busy}
-              onClick={() => setSelectedMultiplier(m)}
-              style={{ flex: "1 1 60px" }}
-            >
-              {m}X
-            </button>
-          );
-        })}
-      </div>
+      <MultiplierSlider value={selectedMultiplier} onChange={setSelectedMultiplier} disabled={busy} />
+      {multiplierCapped ? (
+        <WarningBanner
+          tone="warn"
+          title={`Capped to ${effectiveMultiplier}X`}
+          message={`Your account is entitled to ${multiplierMin}X-${multiplierMax}X on this strategy - ${selectedMultiplier}X will be capped to ${effectiveMultiplier}X. Ask an admin to raise your limit for more.`}
+        />
+      ) : null}
       <div className="stat-sub" style={{ marginBottom: 16 }}>
         <span>Projected Execution Lot Sizing</span>
         <span style={{ color: "var(--fg)", fontWeight: 700 }}>
-          {masterLot ?? "—"}L × {selectedMultiplier}X ={" "}
+          {masterLot ?? "—"}L × {effectiveMultiplier}X ={" "}
           {previewLot !== null ? `${previewLot} Lots` : "—"}
         </span>
       </div>
@@ -215,9 +236,10 @@ export function StrategyMarketplaceCard({
 
       {showWizard && assignment ? (
         <StrategySetupWizard
-          strategyName={strategy.name}
+          strategy={strategy}
           assignment={assignment}
           mt5Connection={mt5Connection}
+          liveBalance={liveBalance}
           onClose={() => setShowWizard(false)}
         />
       ) : null}

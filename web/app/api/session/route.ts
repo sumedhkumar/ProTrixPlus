@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 
 import { apiFetch } from "@/lib/api";
 import { TOKEN_COOKIE } from "@/lib/auth";
-import { isRole } from "@/lib/roles";
+import { isRole, type Role } from "@/lib/roles";
 
 interface DevLoginResponse {
   access_token: string;
-  role: "USER" | "SUPER_ADMIN";
+  role: Role;
   display_name: string;
   subject: string;
 }

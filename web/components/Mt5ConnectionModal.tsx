@@ -5,6 +5,8 @@ import { useState } from "react";
 
 import type { Mt5ConnectionView } from "@/lib/api";
 
+import { WarningBanner } from "./WarningBanner";
+
 type Tab = "setup" | "instructions";
 
 function sleep(ms: number): Promise<void> {
@@ -20,10 +22,12 @@ const POLL_MAX_ATTEMPTS = 20; // ~40s ceiling before giving up honestly
 export function Mt5ConnectionModal({
   connection,
   displayName,
+  minBalance,
   onClose,
 }: {
   connection: Mt5ConnectionView | null;
   displayName: string;
+  minBalance?: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -180,6 +184,14 @@ export function Mt5ConnectionModal({
 
         {tab === "setup" ? (
           <div style={{ marginTop: 20 }}>
+            {minBalance ? (
+              <WarningBanner
+                tone="warn"
+                title={`Minimum balance required: $${minBalance}`}
+                message="This strategy won't work correctly below that in the MT5 account you connect here."
+                style={{ marginBottom: 16 }}
+              />
+            ) : null}
             {connection ? (
               <div
                 className="card"

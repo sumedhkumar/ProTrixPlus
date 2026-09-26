@@ -28,10 +28,13 @@ export function AdminStrategyCatalog({
   strategies,
   alerts,
   unmappedSignals,
+  canEdit,
 }: {
   strategies: StrategyView[];
   alerts: AlertView[];
   unmappedSignals: UnmappedSignalStrategyView[];
+  /** STRATEGY_ADMIN/SUPER_ADMIN can create/toggle/bundle; everyone else views read-only. */
+  canEdit: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -65,6 +68,7 @@ export function AdminStrategyCatalog({
     win_rate: "",
     max_drawdown: "",
     description_short: "",
+    min_balance: "",
   });
 
   async function create(e: React.FormEvent) {
@@ -87,6 +91,7 @@ export function AdminStrategyCatalog({
         win_rate: form.win_rate || null,
         max_drawdown: form.max_drawdown || null,
         description_short: form.description_short || null,
+        min_balance: form.min_balance || null,
       }),
     });
     setBusy(false);
@@ -108,6 +113,7 @@ export function AdminStrategyCatalog({
       win_rate: "",
       max_drawdown: "",
       description_short: "",
+      min_balance: "",
     });
     setShowCreateModal(false);
     router.refresh();
@@ -237,9 +243,11 @@ export function AdminStrategyCatalog({
     <div className="card">
       <div className="card-head">
         <span className="card-title">Strategy Lifecycle &amp; Catalog Management</span>
-        <button type="button" className="btn-primary" onClick={() => setShowCreateModal(true)}>
-          + Create Strategy
-        </button>
+        {canEdit ? (
+          <button type="button" className="btn-primary" onClick={() => setShowCreateModal(true)}>
+            + Create Strategy
+          </button>
+        ) : null}
       </div>
       <p style={{ color: "var(--muted)", fontSize: 12.5, marginTop: -6, marginBottom: 14 }}>
         New strategies are created hidden from clients. Set a price and profit-share %, then click
@@ -252,6 +260,7 @@ export function AdminStrategyCatalog({
               <th>Strategy &amp; symbol</th>
               <th>Timeframe</th>
               <th>Base lot</th>
+              <th>Min. balance</th>
               <th>Pricing &amp; split</th>
               <th>Status</th>
               <th>TradingView</th>
@@ -271,6 +280,7 @@ export function AdminStrategyCatalog({
                 </td>
                 <td>{s.timeframe ?? "-"}</td>
                 <td>{s.base_lot ?? "-"}</td>
+                <td>{s.min_balance ? `$${s.min_balance}` : "-"}</td>
                 <td>
                   {pricingEditFor === s.id ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 130 }}>
@@ -322,15 +332,17 @@ export function AdminStrategyCatalog({
                           {s.profit_share_percent}% profit-share
                         </div>
                       ) : null}
-                      <div>
-                        <button
-                          className="secondary"
-                          onClick={() => startPricingEdit(s)}
-                          style={{ padding: "2px 8px", fontSize: 11, marginTop: 4 }}
-                        >
-                          {s.price && s.profit_share_percent ? "Edit price" : "Set price"}
-                        </button>
-                      </div>
+                      {canEdit ? (
+                        <div>
+                          <button
+                            className="secondary"
+                            onClick={() => startPricingEdit(s)}
+                            style={{ padding: "2px 8px", fontSize: 11, marginTop: 4 }}
+                          >
+                            {s.price && s.profit_share_percent ? "Edit price" : "Set price"}
+                          </button>
+                        </div>
+                      ) : null}
                     </>
                   )}
                 </td>
@@ -361,32 +373,38 @@ export function AdminStrategyCatalog({
                     return (
                       <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button
-                            className="secondary"
-                            disabled={busy || blockedByPricing}
-                            title={
-                              blockedByPricing
-                                ? "Set a price and profit-share % (use 'Set price' in the Pricing & split column) before approving this strategy for clients"
-                                : undefined
-                            }
-                            onClick={() => void toggle(s.id, s.is_active)}
-                          >
-                            {s.is_active ? "Turn OFF" : "Approve & Enable"}
-                          </button>
+                          {canEdit ? (
+                            <button
+                              className="secondary"
+                              disabled={busy || blockedByPricing}
+                              title={
+                                blockedByPricing
+                                  ? "Set a price and profit-share % (use 'Set price' in the Pricing & split column) before approving this strategy for clients"
+                                  : undefined
+                              }
+                              onClick={() => void toggle(s.id, s.is_active)}
+                            >
+                              {s.is_active ? "Turn OFF" : "Approve & Enable"}
+                            </button>
+                          ) : null}
                           <button className="secondary" onClick={() => void viewAlertConfig(s.id)}>
                             Alert config
                           </button>
-                          <button className="secondary" onClick={() => openBundle(s.id)}>
-                            Bundle alerts
-                          </button>
-                          <button
-                            className="secondary"
-                            disabled={busy}
-                            title="Hide from the admin panel and client marketplace - keeps trade history, reversible"
-                            onClick={() => void archive(s.id)}
-                          >
-                            Archive
-                          </button>
+                          {canEdit ? (
+                            <button className="secondary" onClick={() => openBundle(s.id)}>
+                              Bundle alerts
+                            </button>
+                          ) : null}
+                          {canEdit ? (
+                            <button
+                              className="secondary"
+                              disabled={busy}
+                              title="Hide from the admin panel and client marketplace - keeps trade history, reversible"
+                              onClick={() => void archive(s.id)}
+                            >
+                              Archive
+                            </button>
+                          ) : null}
                         </div>
                         {blockedByPricing ? (
                           <span style={{ fontSize: 11, color: "var(--dim)" }}>
@@ -432,13 +450,15 @@ export function AdminStrategyCatalog({
                         </code>
                       </td>
                       <td>
-                        <button
-                          className="secondary"
-                          disabled={busy}
-                          onClick={() => void unarchive(s.id)}
-                        >
-                          Unarchive
-                        </button>
+                        {canEdit ? (
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            onClick={() => void unarchive(s.id)}
+                          >
+                            Unarchive
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   ))}
@@ -683,6 +703,11 @@ export function AdminStrategyCatalog({
                 placeholder="base lot"
                 value={form.base_lot}
                 onChange={(e) => setForm({ ...form, base_lot: e.target.value })}
+              />
+              <input
+                placeholder="minimum MT5 account balance required (e.g. 500)"
+                value={form.min_balance}
+                onChange={(e) => setForm({ ...form, min_balance: e.target.value })}
               />
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <input

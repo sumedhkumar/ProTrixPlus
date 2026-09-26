@@ -72,6 +72,11 @@ class Settings(BaseSettings):
     # Used to build the password-reset link sent to a user's inbox.
     frontend_base_url: str = "http://localhost:3000"
 
+    # Ensured to be SUPER_ADMIN on every production boot (app/main.py's
+    # lifespan, via app/services/admin_accounts.ensure_bootstrap_super_admin).
+    # Idempotent - empty disables the check.
+    bootstrap_super_admin_email: str = "protrixplus@gmail.com"
+
     # Manual-payment instructions shown on /subscribe before a UTR submission.
     # All optional - the frontend shows a "to be added" placeholder state for
     # whichever of these are unset, per docs/FULL-BUILD-PLAN.md decision #4

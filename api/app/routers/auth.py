@@ -14,7 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from protrix_contracts.db.models import PasswordResetToken, User, UserRole
+from protrix_contracts.db.models import AdminInvite, PasswordResetToken, User, UserRole
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -331,8 +331,7 @@ def login_google(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
-                "complete your first login with the emailed password "
-                "before using Google sign-in"
+                "complete your first login with the emailed password " "before using Google sign-in"
             ),
         )
 
@@ -396,22 +395,27 @@ def forgot_password(
 
 @router.post("/reset-password")
 def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)) -> dict[str, bool]:
+    # A token here is either a self-service forgot-password token or an
+    # admin-invite token (see AdminInvite's docstring) - same URL, same
+    # hash/expiry/used_at shape, so one lookup handles both.
     token_hash = hashlib.sha256(body.token.encode("utf-8")).hexdigest()
     now = datetime.now(UTC)
-    reset_token = db.scalar(
+    token: PasswordResetToken | AdminInvite | None = db.scalar(
         select(PasswordResetToken).where(PasswordResetToken.token_hash == token_hash)
     )
-    if reset_token is None or reset_token.used_at is not None or reset_token.expires_at < now:
+    if token is None:
+        token = db.scalar(select(AdminInvite).where(AdminInvite.token_hash == token_hash))
+    if token is None or token.used_at is not None or token.expires_at < now:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="invalid or expired reset token"
         )
 
-    user = db.get(User, reset_token.user_id)
+    user = db.get(User, token.user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="user not found")
 
     user.password_hash = hash_password(body.new_password)
     user.must_change_password = False
-    reset_token.used_at = now
+    token.used_at = now
     db.commit()
     return {"ok": True}

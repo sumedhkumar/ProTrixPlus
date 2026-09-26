@@ -13,7 +13,7 @@ confirmation) before anything actually trades.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
@@ -67,7 +67,7 @@ def subscribe(
 
 class MultiplierPreviewRequest(BaseModel):
     master_lot: Decimal
-    multiplier: Literal[1, 2, 3, 5, 10, 20]
+    multiplier: int = Field(ge=1, le=100)
     multiplier_min: Decimal
     multiplier_max: Decimal
 
@@ -86,7 +86,7 @@ def preview_lot(body: MultiplierPreviewRequest) -> dict[str, str]:
 
 
 class SetMultiplierRequest(BaseModel):
-    multiplier: Literal[1, 2, 3, 5, 10, 20]
+    multiplier: int = Field(ge=1, le=100)
 
 
 @router.patch("/me/assignments/{assignment_id}/multiplier")
@@ -113,13 +113,22 @@ def set_multiplier(
 
 @router.post("/me/assignments/{assignment_id}/confirm-start")
 def confirm_start(
-    assignment_id: str, db: Session = Depends(get_db), claims: Claims = Depends(current_claims)
+    assignment_id: str,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    settings: Settings = Depends(get_settings),
 ) -> dict[str, Any]:
     """Setup Wizard step 3 - the client's explicit, un-skippable risk-disclosure
     confirmation. Only this call can move a SETUP_INCOMPLETE assignment to
-    ACTIVE (see marketplace.confirm_start for the enforced preconditions)."""
+    ACTIVE (see marketplace.confirm_start for the enforced preconditions,
+    including the strategy's min_balance check when one is set)."""
     try:
-        return marketplace.confirm_start(db, user_id=claims.subject, assignment_id=assignment_id)
+        return marketplace.confirm_start(
+            db,
+            user_id=claims.subject,
+            assignment_id=assignment_id,
+            metaapi_token=settings.metaapi_token.get_secret_value(),
+        )
     except marketplace.NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except marketplace.ValidationError as exc:

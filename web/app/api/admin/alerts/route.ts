@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiErrorDetail, apiFetch, ApiError } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import { proxyToApi } from "@/lib/proxy";
 
@@ -13,11 +13,11 @@ export async function GET() {
     return NextResponse.json(body);
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;
-    return NextResponse.json({ error: "failed", detail: String(err) }, { status });
+    return NextResponse.json({ error: "failed", detail: apiErrorDetail(err) }, { status });
   }
 }
 
-/** POST /api/admin/alerts -> api POST /api/v1/admin/alerts (api enforces SUPER_ADMIN) */
+/** POST /api/admin/alerts -> api POST /api/v1/admin/alerts (api enforces STRATEGY_ADMIN/SUPER_ADMIN) */
 export async function POST(req: Request) {
   return proxyToApi("/api/v1/admin/alerts", "POST", req);
 }
