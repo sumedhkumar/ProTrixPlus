@@ -187,6 +187,42 @@ def login(
     )
 
 
+@router.post("/refresh", response_model=AuthResponse)
+def refresh(
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+    provider: IdentityProvider = Depends(get_identity_provider),
+) -> AuthResponse:
+    """Sliding-session renewal: mints a fresh token (new exp) for an
+    already-valid session, so an actively-used session doesn't expire
+    mid-action just because its original fixed-TTL token aged out -
+    web/middleware.ts calls this when the token is close to expiring and
+    replaces the cookie with the new one. Re-reads the user row rather than
+    just trusting the old token's claims, so a deactivated account is
+    rejected here too instead of only at the next full /auth/login.
+    """
+    user = db.get(User, uuid.UUID(claims.subject))
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="account no longer active"
+        )
+
+    token = provider.issue(
+        subject=str(user.id),
+        role=UserRole(user.role),
+        display_name=user.display_name,
+        email=user.email,
+    )
+    return AuthResponse(
+        access_token=token,
+        subject=str(user.id),
+        role=UserRole(user.role),
+        display_name=user.display_name,
+        email=user.email,
+        must_change_password=user.must_change_password,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Trial signup (password-less): auto-provisions a 7-day trial account with a
 # system-generated temp password, emailed to the user. No token is issued
