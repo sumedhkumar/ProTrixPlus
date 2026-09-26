@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiErrorDetail, apiFetch, ApiError } from "@/lib/api";
 import { TOKEN_COOKIE } from "@/lib/auth";
 import type { Role } from "@/lib/roles";
 
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     });
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;
-    return NextResponse.json({ error: "login failed", detail: String(err) }, { status });
+    return NextResponse.json({ error: "login failed", detail: apiErrorDetail(err) }, { status });
   }
 
   const res = NextResponse.json({

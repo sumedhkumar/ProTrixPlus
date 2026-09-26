@@ -224,6 +224,17 @@ export function AuthExperience({ initialMode, googleClientId }: AuthExperiencePr
     setBusy(null);
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      if (res.status === 409) {
+        setAlert({
+          tone: "info",
+          message: "An account already exists for that email.",
+          action: {
+            label: "Sign in instead",
+            onClick: () => switchMode("signin"),
+          },
+        });
+        return;
+      }
       setAlert({ tone: "error", message: body.detail ?? `signup failed (${res.status})` });
       return;
     }

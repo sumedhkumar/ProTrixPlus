@@ -7,6 +7,10 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** The backend's own `detail` string, when its error body was JSON with
+     * one - safe to show a user. `message` stays the full diagnostic string
+     * (path/status/raw body) for server-side logs. */
+    readonly detail?: string,
   ) {
     super(message);
   }
@@ -27,9 +31,23 @@ export async function apiFetch<T>(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new ApiError(res.status, `${path} -> ${res.status} ${body.slice(0, 200)}`);
+    let detail: string | undefined;
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown };
+      if (typeof parsed.detail === "string") detail = parsed.detail;
+    } catch {
+      // Not JSON - no user-safe detail to extract.
+    }
+    throw new ApiError(res.status, `${path} -> ${res.status} ${body.slice(0, 200)}`, detail);
   }
   return (await res.json()) as T;
+}
+
+/** Best-effort user-safe message for an error caught from `apiFetch`: the
+ * backend's own `detail` when available, else the full diagnostic string
+ * (only ever seen if the upstream response wasn't the usual JSON shape). */
+export function apiErrorDetail(err: unknown): string {
+  return err instanceof ApiError ? (err.detail ?? String(err)) : String(err);
 }
 
 export interface SubscriptionStatusView {

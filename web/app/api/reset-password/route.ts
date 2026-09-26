@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { apiFetch, ApiError } from "@/lib/api";
+import { apiErrorDetail, apiFetch, ApiError } from "@/lib/api";
 
 /** POST /api/reset-password { token, new_password } -> api POST /auth/reset-password. Public. */
 export async function POST(req: Request) {
@@ -14,6 +14,6 @@ export async function POST(req: Request) {
     return NextResponse.json(result);
   } catch (err) {
     const status = err instanceof ApiError ? err.status : 502;
-    return NextResponse.json({ error: "reset failed", detail: String(err) }, { status });
+    return NextResponse.json({ error: "reset failed", detail: apiErrorDetail(err) }, { status });
   }
 }
