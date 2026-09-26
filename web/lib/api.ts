@@ -151,6 +151,9 @@ export interface StrategyView {
   max_drawdown: string | null;
   description_short: string | null;
   is_active: boolean;
+  is_archived: boolean;
+  last_signal_at: string | null;
+  signal_status: "connected" | "disconnected";
 }
 
 // "PENDING_APPROVAL" = client self-subscribed but an admin hasn't confirmed
@@ -175,6 +178,16 @@ export interface MyAssignmentView {
   expires_at: string | null;
   confirmed_risk_disclosure: boolean;
   activated_at: string | null;
+}
+
+export interface UnmappedSignalStrategyView {
+  strategy_key: string;
+  strategy_version: string;
+  symbol: string;
+  timeframe: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  signal_count: number;
 }
 
 export interface AlertView {

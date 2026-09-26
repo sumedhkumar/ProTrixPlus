@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -25,12 +25,13 @@ from protrix_contracts.db.models import (
     Mt5Connection,
     Mt5ConnectionStatus,
     PaymentStatus,
+    Signal,
     Strategy,
     StrategyAssignment,
     User,
 )
 from protrix_contracts.money import compute_lot
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 DEFAULT_MULTIPLIER_MIN = Decimal("1")
@@ -44,6 +45,13 @@ ALLOWED_CLIENT_MULTIPLIERS = (
     Decimal("20"),
 )
 
+# A strategy is shown as "connected" while TradingView is actively firing its
+# alert; once nothing has arrived for this long we call it "disconnected" -
+# e.g. the admin/user deleted the alert on the TradingView side, which we
+# have no direct way to detect (TradingView has no alert-management API, see
+# app/routers/webhook.py's docstring - this is a one-way inbound push only).
+SIGNAL_IDLE_THRESHOLD = timedelta(hours=24)
+
 
 class NotFoundError(Exception):
     pass
@@ -53,7 +61,10 @@ class ValidationError(Exception):
     pass
 
 
-def _strategy_dict(s: Strategy) -> dict[str, Any]:
+def _strategy_dict(s: Strategy, *, last_signal_at: datetime | None = None) -> dict[str, Any]:
+    connected = last_signal_at is not None and (
+        datetime.now(UTC) - last_signal_at <= SIGNAL_IDLE_THRESHOLD
+    )
     return {
         "id": str(s.id),
         "strategy_key": s.strategy_key,
@@ -71,6 +82,9 @@ def _strategy_dict(s: Strategy) -> dict[str, Any]:
         "max_drawdown": format(s.max_drawdown, "f") if s.max_drawdown is not None else None,
         "description_short": s.description_short,
         "is_active": s.is_active,
+        "is_archived": s.is_archived,
+        "last_signal_at": last_signal_at.isoformat() if last_signal_at is not None else None,
+        "signal_status": "connected" if connected else "disconnected",
     }
 
 
@@ -185,11 +199,141 @@ def admin_update_strategy(
     return _strategy_dict(strategy)
 
 
-def list_catalog(session: Session, *, active_only: bool = False) -> list[dict[str, Any]]:
+def admin_archive_strategy(session: Session, strategy_id: str, *, actor: str) -> dict[str, Any]:
+    """ "Remove from the admin panel" for a strategy with real trade history
+    can't be a hard DELETE (strategy_assignments/order_intents FK to it with
+    no cascade - see 0008_strategy_archive's migration docstring). Archiving
+    hides it from both the admin catalog and the client marketplace
+    (list_catalog filters is_archived out by default) while every
+    assignment/order-intent/signal referencing it stays intact. Also forces
+    is_active off, same as a normal Turn OFF, so it can't keep fanning out
+    signals to existing subscribers while hidden."""
+    strategy = session.get(Strategy, uuid.UUID(strategy_id))
+    if strategy is None:
+        raise NotFoundError(f"strategy {strategy_id} not found")
+
+    strategy.is_archived = True
+    strategy.is_active = False
+    session.add(
+        AuditEvent(
+            event_type="strategy.archived",
+            entity_type="strategy",
+            entity_id=str(strategy.id),
+            actor=actor,
+            data={
+                "strategy_key": strategy.strategy_key,
+                "strategy_version": strategy.strategy_version,
+            },
+        )
+    )
+    session.commit()
+    session.refresh(strategy)
+    return _strategy_dict(strategy)
+
+
+def admin_unarchive_strategy(session: Session, strategy_id: str, *, actor: str) -> dict[str, Any]:
+    """Reverses admin_archive_strategy. The strategy reappears in the admin
+    catalog but stays NOT ENABLED (is_active still False) - admin must
+    explicitly re-price/re-approve it, same as any newly created strategy."""
+    strategy = session.get(Strategy, uuid.UUID(strategy_id))
+    if strategy is None:
+        raise NotFoundError(f"strategy {strategy_id} not found")
+
+    strategy.is_archived = False
+    session.add(
+        AuditEvent(
+            event_type="strategy.unarchived",
+            entity_type="strategy",
+            entity_id=str(strategy.id),
+            actor=actor,
+            data={
+                "strategy_key": strategy.strategy_key,
+                "strategy_version": strategy.strategy_version,
+            },
+        )
+    )
+    session.commit()
+    session.refresh(strategy)
+    return _strategy_dict(strategy)
+
+
+def list_catalog(
+    session: Session, *, active_only: bool = False, include_archived: bool = False
+) -> list[dict[str, Any]]:
     stmt = select(Strategy).order_by(Strategy.created_at)
     if active_only:
         stmt = stmt.where(Strategy.is_active.is_(True))
-    return [_strategy_dict(s) for s in session.scalars(stmt).all()]
+    if not include_archived:
+        stmt = stmt.where(Strategy.is_archived.is_(False))
+    strategies = session.scalars(stmt).all()
+
+    last_signal_rows = session.execute(
+        select(
+            Signal.strategy_key,
+            Signal.strategy_version,
+            func.max(Signal.accepted_at),
+        ).group_by(Signal.strategy_key, Signal.strategy_version)
+    ).all()
+    last_signal_by_key = {(row[0], row[1]): row[2] for row in last_signal_rows}
+
+    return [
+        _strategy_dict(
+            s, last_signal_at=last_signal_by_key.get((s.strategy_key, s.strategy_version))
+        )
+        for s in strategies
+    ]
+
+
+def list_unmapped_signal_strategies(session: Session) -> list[dict[str, Any]]:
+    """Distinct (strategy_key, strategy_version) pairs TradingView has
+    actually sent us that don't match any Strategy row yet - i.e. a real
+    alert is firing but nobody has created a catalog entry for it. Powers
+    the "pick from what's actually arriving" dropdown in the admin Create
+    Strategy form, so the admin never has to hand-type a key/version that
+    has to match a live signal byte-for-byte."""
+    existing = set(session.execute(select(Strategy.strategy_key, Strategy.strategy_version)).all())
+
+    rows = session.execute(
+        select(
+            Signal.strategy_key,
+            Signal.strategy_version,
+            Signal.symbol,
+            Signal.timeframe,
+            Signal.accepted_at,
+        ).order_by(Signal.accepted_at.desc())
+    ).all()
+
+    unmapped: dict[tuple[str, str], dict[str, Any]] = {}
+    for strategy_key, strategy_version, symbol, timeframe, accepted_at in rows:
+        key = (strategy_key, strategy_version)
+        if key in existing:
+            continue
+        if key not in unmapped:
+            # Rows arrive newest-first, so the first sighting of a key is
+            # its most recent signal - that's what we use for symbol/
+            # timeframe (a strategy could in principle change these, but
+            # the latest signal is the most useful default to prefill).
+            unmapped[key] = {
+                "strategy_key": strategy_key,
+                "strategy_version": strategy_version,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "first_seen_at": accepted_at,
+                "last_seen_at": accepted_at,
+                "signal_count": 0,
+            }
+        entry = unmapped[key]
+        entry["signal_count"] += 1
+        entry["first_seen_at"] = accepted_at
+
+    return [
+        {
+            **entry,
+            "first_seen_at": entry["first_seen_at"].isoformat(),
+            "last_seen_at": entry["last_seen_at"].isoformat(),
+        }
+        for entry in sorted(unmapped.values(), key=lambda e: e["last_seen_at"], reverse=True)
+    ]
 
 
 def alert_config_for_strategy(session: Session, strategy_id: str) -> dict[str, Any]:
@@ -214,7 +358,7 @@ def alert_config_for_strategy(session: Session, strategy_id: str) -> dict[str, A
             "schema_version": "1.0",
             "strategy_key": strategy.strategy_key,
             "strategy_version": strategy.strategy_version,
-            "signal_id": "{{strategy.order.id}}-{{timenow}}",
+            "order_id": "{{strategy.order.id}}",
             "event_time_utc": "{{timenow}}",
             "action": "{{strategy.order.action}}",
             "symbol": "{{ticker}}",
@@ -223,10 +367,16 @@ def alert_config_for_strategy(session: Session, strategy_id: str) -> dict[str, A
         "note": (
             "Paste alert_message_template into the TradingView alert's Message "
             "box (TradingView fills in the {{...}} placeholders when it fires). "
-            "Set the Webhook URL to your deployment's public host + "
-            "webhook_path_template, with <your-webhook-secret> replaced by the "
-            "real PROTRIX_TRADINGVIEW_WEBHOOK_SECRET value from infra/.env - "
-            "never share that value outside your own deployment config."
+            "order_id + event_time_utc are combined server-side into the "
+            "signal_id our webhook actually requires - kept as two separate "
+            "single-placeholder fields here because TradingView's alert editor "
+            "sometimes mis-lints a value with two {{...}} placeholders "
+            "concatenated in one string (harmless warning, but this format "
+            "avoids it entirely). Set the Webhook URL to your deployment's "
+            "public host + webhook_path_template, with <your-webhook-secret> "
+            "replaced by the real PROTRIX_TRADINGVIEW_WEBHOOK_SECRET value from "
+            "infra/.env - never share that value outside your own deployment "
+            "config."
         ),
     }
 

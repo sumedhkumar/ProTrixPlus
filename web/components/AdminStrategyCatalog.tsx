@@ -3,22 +3,54 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import type { AlertView, StrategyView } from "@/lib/api";
+import type { AlertView, StrategyView, UnmappedSignalStrategyView } from "@/lib/api";
+
+function humanizeStrategyKey(key: string): string {
+  return key
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function timeAgo(iso: string): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
 export function AdminStrategyCatalog({
   strategies,
   alerts,
+  unmappedSignals,
 }: {
   strategies: StrategyView[];
   alerts: AlertView[];
+  unmappedSignals: UnmappedSignalStrategyView[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [alertConfigFor, setAlertConfigFor] = useState<string | null>(null);
-  const [alertConfigBody, setAlertConfigBody] = useState<string>("");
+  const [alertConfig, setAlertConfig] = useState<{
+    webhook_path_template: string;
+    alert_message_template: Record<string, unknown>;
+    note: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
   const [bundleFor, setBundleFor] = useState<string | null>(null);
   const [selectedAlertIds, setSelectedAlertIds] = useState<string[]>([]);
+  const [pricingEditFor, setPricingEditFor] = useState<string | null>(null);
+  const [pricingForm, setPricingForm] = useState({ price: "", profit_share_percent: "" });
+  const [pricingBusy, setPricingBusy] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const visibleStrategies = strategies.filter((s) => !s.is_archived);
+  const archivedStrategies = strategies.filter((s) => s.is_archived);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [form, setForm] = useState({
     strategy_key: "",
@@ -81,6 +113,35 @@ export function AdminStrategyCatalog({
     router.refresh();
   }
 
+  async function archive(id: string) {
+    if (!window.confirm("Hide this strategy from the admin panel and client marketplace? Its trade history is kept and this is reversible.")) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/admin/strategies/${id}/archive`, { method: "POST" });
+    setBusy(false);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `archive failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
+
+  async function unarchive(id: string) {
+    setBusy(true);
+    setError(null);
+    const res = await fetch(`/api/admin/strategies/${id}/unarchive`, { method: "POST" });
+    setBusy(false);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `unarchive failed (${res.status})`);
+      return;
+    }
+    router.refresh();
+  }
+
   async function toggle(id: string, isActive: boolean) {
     setBusy(true);
     setError(null);
@@ -98,12 +159,55 @@ export function AdminStrategyCatalog({
     router.refresh();
   }
 
+  function startPricingEdit(s: StrategyView) {
+    setPricingEditFor(s.id);
+    setPricingForm({ price: s.price ?? "", profit_share_percent: s.profit_share_percent ?? "" });
+    setError(null);
+  }
+
+  async function savePricing(id: string) {
+    if (!pricingForm.price || !pricingForm.profit_share_percent) {
+      setError("price and profit-share % are both required");
+      return;
+    }
+    setPricingBusy(true);
+    setError(null);
+    const res = await fetch(`/api/admin/strategies/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        price: pricingForm.price,
+        profit_share_percent: pricingForm.profit_share_percent,
+      }),
+    });
+    setPricingBusy(false);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { detail?: string };
+      setError(body.detail ?? `save failed (${res.status})`);
+      return;
+    }
+    setPricingEditFor(null);
+    router.refresh();
+  }
+
   async function viewAlertConfig(id: string) {
     setAlertConfigFor(id);
-    setAlertConfigBody("loading...");
+    setAlertConfig(null);
+    setCopied(false);
     const res = await fetch(`/api/admin/strategies/${id}/alert-config`);
-    const body = await res.json();
-    setAlertConfigBody(JSON.stringify(body, null, 2));
+    const body = (await res.json()) as {
+      webhook_path_template: string;
+      alert_message_template: Record<string, unknown>;
+      note: string;
+    };
+    setAlertConfig(body);
+  }
+
+  async function copyAlertMessage() {
+    if (!alertConfig) return;
+    await navigator.clipboard.writeText(JSON.stringify(alertConfig.alert_message_template, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   }
 
   function openBundle(strategyId: string) {
@@ -150,11 +254,12 @@ export function AdminStrategyCatalog({
               <th>Base lot</th>
               <th>Pricing &amp; split</th>
               <th>Status</th>
+              <th>TradingView</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {strategies.map((s) => (
+            {visibleStrategies.map((s) => (
               <tr key={s.id}>
                 <td>
                   <div style={{ fontWeight: 700 }}>
@@ -167,17 +272,87 @@ export function AdminStrategyCatalog({
                 <td>{s.timeframe ?? "-"}</td>
                 <td>{s.base_lot ?? "-"}</td>
                 <td>
-                  {s.price ? `$${s.price}/mo` : "-"}
-                  {s.profit_share_percent ? (
-                    <div style={{ color: "var(--muted)", fontSize: 11 }}>
-                      {s.profit_share_percent}% profit-share
+                  {pricingEditFor === s.id ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 130 }}>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="price ($/mo)"
+                        value={pricingForm.price}
+                        onChange={(e) => setPricingForm({ ...pricingForm, price: e.target.value })}
+                        style={{ fontSize: 12, padding: "4px 6px" }}
+                      />
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        placeholder="profit-share %"
+                        value={pricingForm.profit_share_percent}
+                        onChange={(e) =>
+                          setPricingForm({ ...pricingForm, profit_share_percent: e.target.value })
+                        }
+                        style={{ fontSize: 12, padding: "4px 6px" }}
+                      />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          className="btn-primary"
+                          disabled={pricingBusy}
+                          onClick={() => void savePricing(s.id)}
+                          style={{ padding: "3px 10px", fontSize: 12 }}
+                        >
+                          {pricingBusy ? "Saving..." : "Save"}
+                        </button>
+                        <button
+                          className="secondary"
+                          disabled={pricingBusy}
+                          onClick={() => setPricingEditFor(null)}
+                          style={{ padding: "3px 10px", fontSize: 12 }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    <>
+                      {s.price ? `$${s.price}/mo` : "-"}
+                      {s.profit_share_percent ? (
+                        <div style={{ color: "var(--muted)", fontSize: 11 }}>
+                          {s.profit_share_percent}% profit-share
+                        </div>
+                      ) : null}
+                      <div>
+                        <button
+                          className="secondary"
+                          onClick={() => startPricingEdit(s)}
+                          style={{ padding: "2px 8px", fontSize: 11, marginTop: 4 }}
+                        >
+                          {s.price && s.profit_share_percent ? "Edit price" : "Set price"}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </td>
                 <td>
                   <span className={`badge-pill ${s.is_active ? "badge-green" : "badge-neutral"}`}>
                     {s.is_active ? "ACTIVE - visible to clients" : "NOT ENABLED"}
                   </span>
+                </td>
+                <td>
+                  <span
+                    className={`badge-pill ${s.signal_status === "connected" ? "badge-green" : "badge-neutral"}`}
+                    title={
+                      s.last_signal_at
+                        ? `Last signal received: ${new Date(s.last_signal_at).toLocaleString()}`
+                        : "No signal ever received from TradingView for this strategy"
+                    }
+                  >
+                    {s.signal_status === "connected" ? "🟢 Connected" : "⚪ Disconnected"}
+                  </span>
+                  <div style={{ color: "var(--muted)", fontSize: 11, marginTop: 3 }}>
+                    {s.last_signal_at ? `last signal ${timeAgo(s.last_signal_at)}` : "no signal yet"}
+                  </div>
                 </td>
                 <td>
                   {(() => {
@@ -191,7 +366,7 @@ export function AdminStrategyCatalog({
                             disabled={busy || blockedByPricing}
                             title={
                               blockedByPricing
-                                ? "Set a price and profit-share % (below) before approving this strategy for clients"
+                                ? "Set a price and profit-share % (use 'Set price' in the Pricing & split column) before approving this strategy for clients"
                                 : undefined
                             }
                             onClick={() => void toggle(s.id, s.is_active)}
@@ -204,10 +379,18 @@ export function AdminStrategyCatalog({
                           <button className="secondary" onClick={() => openBundle(s.id)}>
                             Bundle alerts
                           </button>
+                          <button
+                            className="secondary"
+                            disabled={busy}
+                            title="Hide from the admin panel and client marketplace - keeps trade history, reversible"
+                            onClick={() => void archive(s.id)}
+                          >
+                            Archive
+                          </button>
                         </div>
                         {blockedByPricing ? (
                           <span style={{ fontSize: 11, color: "var(--dim)" }}>
-                            Set price &amp; profit-share to enable
+                            Use &quot;Set price&quot; (left) to enable
                           </span>
                         ) : null}
                       </div>
@@ -220,10 +403,114 @@ export function AdminStrategyCatalog({
         </table>
       </div>
 
+      {archivedStrategies.length > 0 ? (
+        <div style={{ marginTop: 14 }}>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => setShowArchived((v) => !v)}
+            style={{ fontSize: 12.5 }}
+          >
+            {showArchived ? "▾" : "▸"} Archived strategies ({archivedStrategies.length})
+          </button>
+          {showArchived ? (
+            <div style={{ overflowX: "auto", marginTop: 10 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Strategy &amp; symbol</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {archivedStrategies.map((s) => (
+                    <tr key={s.id}>
+                      <td>
+                        <div style={{ fontWeight: 700 }}>{s.name}</div>
+                        <code>
+                          {s.strategy_key}@{s.strategy_version}
+                        </code>
+                      </td>
+                      <td>
+                        <button
+                          className="secondary"
+                          disabled={busy}
+                          onClick={() => void unarchive(s.id)}
+                        >
+                          Unarchive
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {alertConfigFor ? (
         <div className="pending-panel" style={{ textAlign: "left", marginTop: 14 }}>
           <strong>TradingView alert config</strong>
-          <pre style={{ overflowX: "auto", fontSize: 12 }}>{alertConfigBody}</pre>
+          {!alertConfig ? (
+            <p style={{ color: "var(--muted)", fontSize: 12.5 }}>Loading...</p>
+          ) : (
+            <>
+              <label
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--muted)",
+                  display: "block",
+                  marginTop: 12,
+                  marginBottom: 4,
+                }}
+              >
+                Webhook URL (replace &lt;your-webhook-secret&gt; with your deployment&apos;s real
+                secret)
+              </label>
+              <code style={{ display: "block", fontSize: 12.5, wordBreak: "break-all" }}>
+                {alertConfig.webhook_path_template}
+              </code>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginTop: 14,
+                  marginBottom: 4,
+                }}
+              >
+                <label style={{ fontSize: 11.5, color: "var(--muted)" }}>
+                  Message (paste exactly this into TradingView&apos;s alert Message box)
+                </label>
+                <button
+                  type="button"
+                  className="secondary"
+                  style={{ padding: "2px 10px", fontSize: 11.5 }}
+                  onClick={() => void copyAlertMessage()}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
+              <pre
+                style={{
+                  overflowX: "auto",
+                  fontSize: 12,
+                  background: "var(--bg)",
+                  border: "1px solid var(--panel-border)",
+                  borderRadius: 8,
+                  padding: 12,
+                }}
+              >
+                {JSON.stringify(alertConfig.alert_message_template, null, 2)}
+              </pre>
+
+              <p style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 10 }}>
+                {alertConfig.note}
+              </p>
+            </>
+          )}
           <button className="secondary" onClick={() => setAlertConfigFor(null)}>
             Close
           </button>
@@ -315,6 +602,43 @@ export function AdminStrategyCatalog({
               onSubmit={(e) => void create(e)}
               style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 18 }}
             >
+              {unmappedSignals.length > 0 ? (
+                <div>
+                  <label style={{ fontSize: 11.5, color: "var(--muted)", display: "block", marginBottom: 4 }}>
+                    New alerts TradingView is already sending (not yet in the catalog)
+                  </label>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => {
+                      const picked = unmappedSignals.find(
+                        (u) => `${u.strategy_key}@${u.strategy_version}` === e.target.value,
+                      );
+                      if (!picked) return;
+                      setForm({
+                        ...form,
+                        strategy_key: picked.strategy_key,
+                        strategy_version: picked.strategy_version,
+                        name: humanizeStrategyKey(picked.strategy_key),
+                        symbol: picked.symbol,
+                        timeframe: picked.timeframe,
+                      });
+                    }}
+                  >
+                    <option value="" disabled>
+                      Select an incoming alert...
+                    </option>
+                    {unmappedSignals.map((u) => (
+                      <option key={`${u.strategy_key}@${u.strategy_version}`} value={`${u.strategy_key}@${u.strategy_version}`}>
+                        {humanizeStrategyKey(u.strategy_key)} ({u.signal_count} signal
+                        {u.signal_count === 1 ? "" : "s"})
+                      </option>
+                    ))}
+                  </select>
+                  <p style={{ fontSize: 11, color: "var(--dim)", marginTop: 4 }}>
+                    Picking one fills in the fields below - you can still edit them before saving.
+                  </p>
+                </div>
+              ) : null}
               <input
                 placeholder="strategy_key"
                 value={form.strategy_key}

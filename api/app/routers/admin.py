@@ -103,8 +103,17 @@ class StrategyUpdateRequest(BaseModel):
 
 
 @router.get("/strategies")
-def admin_list_strategies(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
-    return marketplace.list_catalog(db)
+def admin_list_strategies(
+    include_archived: bool = False, db: Session = Depends(get_db)
+) -> list[dict[str, Any]]:
+    return marketplace.list_catalog(db, include_archived=include_archived)
+
+
+@router.get("/strategies/unmapped-signals")
+def admin_unmapped_signal_strategies(db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    """Real signals TradingView is already sending that don't match any
+    strategy in the catalog yet - for the Create Strategy dropdown."""
+    return marketplace.list_unmapped_signal_strategies(db)
 
 
 @router.post("/strategies", status_code=status.HTTP_201_CREATED)
@@ -144,6 +153,33 @@ def admin_update_strategy(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+
+@router.post("/strategies/{strategy_id}/archive")
+def admin_archive_strategy(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    """Hides a strategy (with real trade history) from both the admin
+    catalog and the client marketplace, without deleting anything it's
+    linked to. Reversible via /unarchive."""
+    try:
+        return marketplace.admin_archive_strategy(db, strategy_id, actor=claims.subject)
+    except marketplace.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/strategies/{strategy_id}/unarchive")
+def admin_unarchive_strategy(
+    strategy_id: str,
+    db: Session = Depends(get_db),
+    claims: Claims = Depends(current_claims),
+) -> dict[str, Any]:
+    try:
+        return marketplace.admin_unarchive_strategy(db, strategy_id, actor=claims.subject)
+    except marketplace.NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
 @router.get("/strategies/{strategy_id}/alert-config")

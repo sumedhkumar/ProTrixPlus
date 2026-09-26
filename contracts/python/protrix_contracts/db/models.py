@@ -200,6 +200,12 @@ class Strategy(Base):
     strategy_version: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    # Archived = hidden from both the admin catalog and client marketplace,
+    # but the row (and every assignment/order-intent/signal referencing it)
+    # is kept intact for history - see marketplace.admin_archive_strategy.
+    # Distinct from is_active: an inactive-but-not-archived strategy still
+    # shows in the admin panel (just marked NOT ENABLED).
+    is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
 
     # Catalog fields (PRD 5.3: admin-managed strategy catalog).
     description: Mapped[str | None] = mapped_column(Text)
